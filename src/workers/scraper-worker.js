@@ -1,7 +1,6 @@
 import scrapeQueue from './queue.js';
 import { query } from '../db/index.js';
 import { searchAirbnb } from './python-executor.js';
-import { sendNewListingEmail } from '../services/email.js';
 import { checkICalAvailability } from '../services/ical.js';
 import logger from '../utils/logger.js';
 
@@ -39,13 +38,13 @@ export async function runSearchAlert(alertId, opts = {}) {
   const {
     searchFn       = searchAirbnb,
     checkICalFn    = checkICalAvailability,
-    sendEmailFn    = sendNewListingEmail,
+    dbQuery        = query,
   } = opts;
 
   logger.info(`Processing search alert ${alertId}`);
 
   // Load alert
-  const alertResult = await query(
+  const alertResult = await dbQuery(
     `SELECT * FROM search_alerts WHERE id = $1 AND is_active = true`,
     [alertId]
   );
@@ -107,7 +106,7 @@ export async function runSearchAlert(alertId, opts = {}) {
 
   if (currentListings.length === 0) {
     logger.warn(`Alert ${alertId}: zero results — possible API change or filter mismatch`);
-    await query(`UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`, [alertId]);
+    await dbQuery(`UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`, [alertId]);
     return { status: 'success', alertId, totalListings: 0, newListings: 0, priceDrops: 0, freedUp: 0 };
   }
 
@@ -118,16 +117,50 @@ export async function runSearchAlert(alertId, opts = {}) {
   // Using listings.price would give us the already-overwritten current value;
   // using search_results.old_price loses the original baseline on every upsert.
   // DISTINCT ON picks the single most-recent row per listing for this alert.
-  const knownResult = await query(
-    `SELECT DISTINCT ON (lph.listing_id)
-            lph.listing_id,
-            lph.price AS last_price
-     FROM listing_price_history lph
-     WHERE lph.search_alert_id = $1
-     ORDER BY lph.listing_id, lph.recorded_at DESC`,
+  const knownResult = await dbQuery(
+    `WITH known_ids AS (
+       SELECT listing_id
+       FROM search_results
+       WHERE search_alert_id = $1
+       UNION
+       SELECT listing_id
+       FROM listing_price_history
+       WHERE search_alert_id = $1
+     )
+     SELECT
+       k.listing_id,
+       COALESCE(
+         (
+           SELECT lph.price
+           FROM listing_price_history lph
+           WHERE lph.search_alert_id = $1
+             AND lph.listing_id = k.listing_id
+           ORDER BY lph.recorded_at DESC
+           LIMIT 1
+         ),
+         (
+           SELECT sr.new_price
+           FROM search_results sr
+           WHERE sr.search_alert_id = $1
+             AND sr.listing_id = k.listing_id
+           ORDER BY sr.detected_at DESC
+           LIMIT 1
+         ),
+         (
+           SELECT l.price
+           FROM listings l
+           WHERE l.listing_id = k.listing_id
+         )
+       ) AS last_price
+     FROM known_ids k`,
     [alertId]
   );
-  const knownListings = new Map(knownResult.rows.map(r => [r.listing_id, Number(r.last_price)]));
+  const knownListings = new Map(
+    knownResult.rows.map((r) => {
+      const parsed = r.last_price == null ? null : Number(r.last_price);
+      return [r.listing_id, Number.isFinite(parsed) ? parsed : null];
+    })
+  );
 
   // ── Process each listing returned by the scraper ───────────────────────────
   const newListings       = [];
@@ -142,7 +175,7 @@ export async function runSearchAlert(alertId, opts = {}) {
     if (!id) continue;
 
     // Upsert into listings cache
-    await query(
+    await dbQuery(
       `INSERT INTO listings
          (listing_id, url, name, price, currency, rating, num_reviews,
           room_type, guests, beds, bedrooms, address, lat, lng,
@@ -173,16 +206,16 @@ export async function runSearchAlert(alertId, opts = {}) {
 
     // Append to price history only when price changes from last recorded value
     if (price != null) {
-      await query(
+      await dbQuery(
         `INSERT INTO listing_price_history (listing_id, search_alert_id, price)
-         SELECT $1, $2, $3
+         SELECT $1::text, $2::int, $3::numeric
          WHERE NOT EXISTS (
            SELECT 1 FROM listing_price_history
-           WHERE listing_id = $1 AND search_alert_id = $2
-             AND price = $3
+           WHERE listing_id = $1::text AND search_alert_id = $2::int
+             AND price = $3::numeric
              AND recorded_at = (
                SELECT MAX(recorded_at) FROM listing_price_history
-               WHERE listing_id = $1 AND search_alert_id = $2
+               WHERE listing_id = $1::text AND search_alert_id = $2::int
              )
          )`,
         [id, alertId, price]
@@ -208,12 +241,12 @@ export async function runSearchAlert(alertId, opts = {}) {
         if (!available) {
           logger.debug(`New listing ${id} skipped — not available for requested dates`);
           // Still record it so we can track it for "freed up" later
-          await upsertSearchResult(alertId, id, 'new', null, price);
+          await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
           continue;
         }
       }
 
-      await upsertSearchResult(alertId, id, 'new', null, price);
+      await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
       newListings.push({ ...listing, price, url });
 
     } else {
@@ -228,7 +261,7 @@ export async function runSearchAlert(alertId, opts = {}) {
       if (price != null && lastPrice != null && price < lastPrice &&
           drop >= DROP_MIN_ABS && drop / lastPrice >= DROP_MIN_PCT) {
         // Only alert if we haven't already notified at this price point
-        const alreadyNotified = await query(
+        const alreadyNotified = await dbQuery(
           `SELECT 1 FROM notifications
            WHERE search_alert_id = $1 AND listing_id = $2
              AND notification_type = 'price_drop'
@@ -237,9 +270,9 @@ export async function runSearchAlert(alertId, opts = {}) {
           [alertId, id]
         );
         if (alreadyNotified.rows.length === 0) {
-          await upsertSearchResult(alertId, id, 'price_drop', lastPrice, price);
+          await upsertSearchResult(dbQuery, alertId, id, 'price_drop', lastPrice, price);
           // Fetch history to include in email
-          const histResult = await query(
+          const histResult = await dbQuery(
             `SELECT price, recorded_at FROM listing_price_history
              WHERE listing_id = $1 AND search_alert_id = $2
              ORDER BY recorded_at ASC`,
@@ -255,7 +288,7 @@ export async function runSearchAlert(alertId, opts = {}) {
           const nowAvailable = await checkICalFn(id, alert.check_in, alert.check_out);
           if (nowAvailable) {
             // Only fire if we haven't sent a freed-up alert for this listing recently
-            const alreadyNotified = await query(
+            const alreadyNotified = await dbQuery(
               `SELECT 1 FROM notifications
                WHERE search_alert_id = $1 AND listing_id = $2
                  AND notification_type = 'availability_change'
@@ -264,7 +297,7 @@ export async function runSearchAlert(alertId, opts = {}) {
               [alertId, id]
             );
             if (alreadyNotified.rows.length === 0) {
-              await upsertSearchResult(alertId, id, 'freed_up', null, price);
+              await upsertSearchResult(dbQuery, alertId, id, 'freed_up', null, price);
               freedUpListings.push({ ...listing, price, url });
             }
           }
@@ -276,30 +309,31 @@ export async function runSearchAlert(alertId, opts = {}) {
   }
 
   // ── Mark last checked ──────────────────────────────────────────────────────
-  await query(
+  await dbQuery(
     `UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`,
     [alertId]
   );
 
   // ── Send emails ────────────────────────────────────────────────────────────
-  const userResult = await query(
-    `SELECT u.email, u.subscription_tier FROM users u
+  const userResult = await dbQuery(
+    `SELECT u.subscription_tier FROM users u
      JOIN search_alerts sa ON sa.user_id = u.id
      WHERE sa.id = $1`,
     [alertId]
   );
-  const userEmail = userResult.rows[0]?.email;
   const subscriptionTier = userResult.rows[0]?.subscription_tier;
 
-  if (userEmail) {
-    // Premium tier: only email if new listings found (avoid email spam from hourly runs)
-    // Basic tier: email for all changes (new, price drops, freed up) but max 1 email per 24 hours
+  if (subscriptionTier) {
+    // Premium tier: email for all detected changes as they happen.
+    // Basic tier: email for all changes but max 1 email per 24 hours.
     if (subscriptionTier === 'premium') {
-      // Premium: only send if there are NEW listings
-      await sendAlerts(userEmail, alert, alertId, newListings, 'new', 'new_listing', sendEmailFn);
+      // Premium: queue all change types as they happen
+      await sendAlerts(dbQuery, alert, alertId, newListings,       'new',         'new_listing');
+      await sendAlerts(dbQuery, alert, alertId, priceDropListings, 'price_drop',  'price_drop');
+      await sendAlerts(dbQuery, alert, alertId, freedUpListings,   'availability','availability_change');
     } else {
-      // Basic: send all changes, but check if we've already sent an email in the last 24 hours
-      const lastEmailCheck = await query(
+      // Basic: queue all changes, but max 1 queued email bundle per 24 hours
+      const lastEmailCheck = await dbQuery(
         `SELECT last_notified FROM search_alerts WHERE id = $1`,
         [alertId]
       );
@@ -308,16 +342,16 @@ export async function runSearchAlert(alertId, opts = {}) {
       const hasEmailedRecently = lastNotified && (new Date() - new Date(lastNotified)) < 24 * 60 * 60 * 1000;
       
       if (!hasEmailedRecently) {
-        // Send email only if we haven't sent one in the last 24 hours
+        // Queue notifications only if we haven't queued one in the last 24 hours
         const hasChanges = newListings.length > 0 || priceDropListings.length > 0 || freedUpListings.length > 0;
         
         if (hasChanges) {
-          await sendAlerts(userEmail, alert, alertId, newListings,       'new',        'new_listing',       sendEmailFn);
-          await sendAlerts(userEmail, alert, alertId, priceDropListings, 'price_drop', 'price_drop',        sendEmailFn);
-          await sendAlerts(userEmail, alert, alertId, freedUpListings,   'availability','availability_change', sendEmailFn);
+          await sendAlerts(dbQuery, alert, alertId, newListings,       'new',         'new_listing');
+          await sendAlerts(dbQuery, alert, alertId, priceDropListings, 'price_drop',  'price_drop');
+          await sendAlerts(dbQuery, alert, alertId, freedUpListings,   'availability','availability_change');
         }
       } else {
-        logger.info(`Alert ${alertId} (basic tier): skipping email — sent one within last 24 hours`);
+        logger.info(`Alert ${alertId} (basic tier): skipping queue — already queued within last 24 hours`);
       }
     }
   }
@@ -338,8 +372,8 @@ export async function runSearchAlert(alertId, opts = {}) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function upsertSearchResult(alertId, listingId, changeType, oldPrice, newPrice) {
-  await query(
+async function upsertSearchResult(dbQuery, alertId, listingId, changeType, oldPrice, newPrice) {
+  await dbQuery(
     `INSERT INTO search_results
        (search_alert_id, listing_id, change_type, old_price, new_price, detected_at)
      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
@@ -352,47 +386,57 @@ async function upsertSearchResult(alertId, listingId, changeType, oldPrice, newP
   );
 }
 
-async function sendAlerts(userEmail, alert, alertId, listings, emailType, notifType, sendEmailFn) {
+async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifType) {
   if (!listings.length) return;
-  try {
-    await sendEmailFn(userEmail, alert, listings, { type: emailType });
-    // Log each notification
-    for (const l of listings) {
-      await query(
-        `INSERT INTO notifications
-           (user_id, search_alert_id, listing_id, notification_type, email_sent)
-         SELECT user_id, $1, $2, $3, true FROM search_alerts WHERE id = $1`,
-        [alertId, l.id, notifType]
-      );
-    }
-    await query(
-      `UPDATE search_alerts SET
-         last_notified      = CURRENT_TIMESTAMP,
-         notification_count = notification_count + $2
-       WHERE id = $1`,
-      [alertId, listings.length]
+  // Queue notification rows for Dreamlit to send; email_sent=false means pending.
+  for (const l of listings) {
+    const payload = {
+      email_type: emailType,
+      listing: {
+        id: l.id ?? null,
+        name: l.name ?? null,
+        url: l.url ?? null,
+        address: l.address ?? null,
+        rating: l.rating ?? null,
+      },
+      prices: {
+        old_price: l.oldPrice ?? null,
+        new_price: l.newPrice ?? (l.price ?? null),
+        current_price: l.price ?? null,
+      },
+      alert: {
+        location: alert.location ?? null,
+        check_in: alert.check_in ?? null,
+        check_out: alert.check_out ?? null,
+        guests: alert.guests ?? null,
+        price_min: alert.price_min ?? null,
+        price_max: alert.price_max ?? null,
+      },
+    };
+    await dbQuery(
+      `INSERT INTO notifications
+         (user_id, search_alert_id, listing_id, notification_type, email_sent, payload)
+       SELECT user_id, $1::int, $2::text, $3::text, false, $4::jsonb FROM search_alerts WHERE id = $1::int`,
+      [alertId, l.id, notifType, JSON.stringify(payload)]
     );
-  } catch (err) {
-    logger.error(`Failed to send ${emailType} email for alert ${alertId}:`, err);
-    // Log failed notification
-    for (const l of listings) {
-      await query(
-        `INSERT INTO notifications
-           (user_id, search_alert_id, listing_id, notification_type, email_sent, email_error)
-         SELECT user_id, $1, $2, $3, false, $4 FROM search_alerts WHERE id = $1`,
-        [alertId, l.id, notifType, err.message]
-      );
-    }
   }
+  await dbQuery(
+    `UPDATE search_alerts SET
+       last_notified      = CURRENT_TIMESTAMP,
+       notification_count = notification_count + $2
+     WHERE id = $1`,
+    [alertId, listings.length]
+  );
 }
 
 // ─── Wire up queue ────────────────────────────────────────────────────────────
-scrapeQueue.process('search', async (job) => {
-  return await runSearchAlert(job.data.alertId);
-});
+function registerQueueProcessors() {
+  scrapeQueue.process('search', async (job) => {
+    return await runSearchAlert(job.data.alertId);
+  });
 
 // ─── Listing-specific alert (iCal availability tracking) ─────────────────────
-scrapeQueue.process('listing', async (job) => {
+  scrapeQueue.process('listing', async (job) => {
   const { alertId } = job.data;
   logger.info(`Processing listing alert ${alertId}`);
 
@@ -422,30 +466,39 @@ scrapeQueue.process('listing', async (job) => {
     );
 
     if (alreadyNotified.rows.length === 0) {
-      const userResult = await query(`SELECT email FROM users WHERE id = $1`, [alert.user_id]);
-      if (userResult.rows[0]) {
-        await sendNewListingEmail(
-          userResult.rows[0].email,
-          alert,
-          [{ url: alert.listing_url, id: alert.listing_id, name: 'Your tracked listing is now available!' }],
-          { type: 'availability' }
-        );
-        await query(
-          `INSERT INTO notifications (user_id, search_alert_id, listing_id, notification_type, email_sent)
-           VALUES ($1, $2, $3, 'availability_change', true)`,
-          [alert.user_id, alertId, alert.listing_id]
-        );
-        await query(
-          `UPDATE search_alerts SET last_notified = CURRENT_TIMESTAMP, notification_count = notification_count + 1 WHERE id = $1`,
-          [alertId]
-        );
-      }
+      const payload = {
+        email_type: 'availability',
+        listing: {
+          id: alert.listing_id ?? null,
+          name: 'Your tracked listing is now available!',
+          url: alert.listing_url ?? null,
+        },
+        alert: {
+          check_in: alert.check_in ?? null,
+          check_out: alert.check_out ?? null,
+        },
+      };
+      await query(
+        `INSERT INTO notifications (user_id, search_alert_id, listing_id, notification_type, email_sent, payload)
+         VALUES ($1, $2, $3, 'availability_change', false, $4::jsonb)`,
+        [alert.user_id, alertId, alert.listing_id, JSON.stringify(payload)]
+      );
+      await query(
+        `UPDATE search_alerts SET last_notified = CURRENT_TIMESTAMP, notification_count = notification_count + 1 WHERE id = $1`,
+        [alertId]
+      );
     }
   }
 
   await query(`UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`, [alertId]);
   return { status: 'success', alertId, isAvailable };
-});
+  });
 
-logger.info('🔄 Worker started');
+  logger.info('🔄 Worker started');
+}
+
+if (process.env.WORKER_AUTOSTART !== 'false') {
+  registerQueueProcessors();
+}
+
 export default scrapeQueue;

@@ -6,11 +6,11 @@
   - Mocks searchAirbnb results and iCal availability
   - Calls runSearchAlert and asserts DB changes
 
-  Run with: node test_worker_flows.js
+  Run with: node tests/test_worker_flows.js
 */
 import assert from 'assert';
-import { query } from './src/db/index.js';
-import { runSearchAlert } from './src/workers/scraper-worker.js';
+import { query } from '../src/db/index.js';
+import { runSearchAlert } from '../src/workers/scraper-worker.js';
 
 async function createTestUser() {
   const res = await query("INSERT INTO users (email, subscription_tier) VALUES ($1, $2) RETURNING id", ['test+worker@example.com', 'premium']);

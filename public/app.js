@@ -1,5 +1,11 @@
 const $ = (sel) => document.querySelector(sel);
 
+function isAirbnbHostname(hostname) {
+  if (!hostname) return false;
+  const normalized = String(hostname).toLowerCase();
+  return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
+}
+
 /**
  * Central API helper. Auth is handled entirely via HttpOnly cookies — no tokens
  * in JS. On a 401 we attempt one silent refresh (POST /api/auth/refresh, which
@@ -87,7 +93,13 @@ async function createUrlAlert() {
   try {
     const search_url = $('#alert-search-url').value.trim();
     if (!search_url) return showMessage('Please paste an Airbnb search URL', true);
-    if (!search_url.includes('airbnb.com')) return showMessage('URL must be from airbnb.com', true);
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(search_url);
+    } catch (e) {
+      return showMessage('Please enter a valid URL', true);
+    }
+    if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from airbnb.com', true);
     const res = await apiRequest('POST', '/api/alerts/url', { search_url });
     
     // Show appropriate message based on alert type
@@ -124,7 +136,7 @@ async function createUrlAlert() {
 function parseAirbnbSearchUrl(urlString) {
   try {
     const url = new URL(urlString);
-    if (!url.hostname.includes('airbnb.com')) return null;
+    if (!isAirbnbHostname(url.hostname)) return null;
     const sp = url.searchParams;
     const asInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
     const adults = asInt(sp.get('adults')) || 0;
@@ -218,6 +230,26 @@ function formatDateForDisplay(d) {
   }
 }
 
+function getAlertTitle(a) {
+  if (!a) return 'Alert';
+
+  if (a.location && String(a.location).trim()) return String(a.location).trim();
+  if (a.listing_url && String(a.listing_url).trim()) return String(a.listing_url).trim();
+  if (a.search_url && String(a.search_url).trim()) {
+    try {
+      const u = new URL(a.search_url);
+      const query = u.searchParams.get('query');
+      if (query && query.trim()) return query.trim();
+      return `${u.hostname}${u.pathname}`;
+    } catch (e) {
+      return String(a.search_url).trim();
+    }
+  }
+  if (a.listing_id) return `Listing ${a.listing_id}`;
+  if (a.id) return `Alert #${a.id}`;
+  return 'Alert';
+}
+
 function renderAlerts(alerts) {
   const container = $('#alerts-list');
   if (!alerts || alerts.length === 0) {
@@ -240,6 +272,14 @@ function renderAlerts(alerts) {
       expirationInfo = `<span class="badge free-trial">Running 1x per day</span>`;
     }
     
+    const title = getAlertTitle(a);
+    const isActive = a.is_active !== false;
+    const typeLabel = a.alert_type === 'listing' ? 'Listing alert' : 'Search alert';
+    const statusBadge = `<span class="badge ${isActive ? '' : 'free-trial'}">${isActive ? 'Active' : 'Paused'}</span>`;
+    const checkMeta = a.last_checked ? `Last checked ${new Date(a.last_checked).toLocaleString()}` : 'Not checked yet';
+    const notifMeta = Number.isFinite(Number(a.notification_count))
+      ? `${a.notification_count} notifications`
+      : '0 notifications';
     const controlsHtml = `
         <div class="controls">
           ${a.alert_type === 'search' ? `<button data-id="${a.id}" class="btn-see-search">See your search</button>` : ''}
@@ -250,9 +290,12 @@ function renderAlerts(alerts) {
     div.innerHTML = `
         <div class="meta">
               ${a.check_in && a.check_out ? `<span class="badge date-range">${formatDateForDisplay(a.check_in)} → ${formatDateForDisplay(a.check_out)}</span>` : ''}
+              <span class="badge">${typeLabel}</span>
+              ${statusBadge}
               ${expirationInfo}
             </div>
-        <div>${a.search_url ? (a.location || '') : (a.listing_url || a.location || '')}</div>
+        <div>${title}</div>
+        <div style="color:var(--muted);font-size:12px">${checkMeta} · ${notifMeta}</div>
         ${controlsHtml}
       `;
     container.appendChild(div);
@@ -666,7 +709,7 @@ async function loadNotifications() {
             — ${n.listing_name || n.listing_id || ''}
             ${priceChange}
           </div>
-          <div style="color:rgba(255,255,255,0.6)">${new Date(n.sent_at).toLocaleString()}</div>
+          <div style="color:var(--muted)">${new Date(n.sent_at).toLocaleString()}</div>
         </div>`;
     }).join('');
   } catch (err) {
@@ -677,7 +720,8 @@ async function loadNotifications() {
 async function loadAlerts() {
   try {
     const res = await apiRequest('GET', '/api/alerts');
-    renderAlerts(res.alerts || []);
+    const alerts = Array.isArray(res?.alerts) ? res.alerts : (Array.isArray(res) ? res : []);
+    renderAlerts(alerts);
     document.getElementById('alerts-card').classList.remove('hidden');
   } catch (err) {
     console.error('Failed to load alerts:', err);
@@ -740,103 +784,6 @@ async function showLoggedInState() {
   // Reveal alerts card always — loadAlerts fills it
   document.getElementById('alerts-card').classList.remove('hidden');
   document.getElementById('notifications-card').classList.remove('hidden');
-
-  // Load billing summary for paying customers
-  await loadBillingSummary();
-}
-
-// ── Billing summary on dashboard ─────────────────────────────────────────────
-async function loadBillingSummary() {
-  const card = document.getElementById('billing-summary-card');
-  const content = document.getElementById('billing-summary-content');
-  if (!card || !content) return;
-
-  try {
-    const res = await apiRequest('GET', '/api/billing/summary');
-    
-    // Only show the billing summary card for paying customers
-    if (!res.isPaid) {
-      card.classList.add('hidden');
-      return;
-    }
-
-    card.classList.remove('hidden');
-    
-    const tier = res.tier || 'basic';
-    const planName = res.planName || 'Basic';
-    const alerts = res.alerts || { used: 0, max: 0 };
-    
-    // Build usage percentage
-    const usagePercent = alerts.max > 0 ? Math.min(100, Math.round((alerts.used / alerts.max) * 100)) : 0;
-    
-    // Build billing info
-    let billingDetails = '';
-    if (res.billing) {
-      const billing = res.billing;
-      const nextBilling = billing.nextBillingDate 
-        ? `<div class="detail-item">
-            <div class="detail-label">Next billing date</div>
-            <div class="detail-value">${billing.nextBillingDate}</div>
-          </div>`
-        : '';
-      const amount = billing.amount ? `<div class="detail-item">
-            <div class="detail-label">${billing.interval === 'yearly' ? 'Annual' : 'Monthly'} cost</div>
-            <div class="detail-value">$${billing.amount.toFixed(2)}/${billing.interval === 'yearly' ? 'yr' : 'mo'}</div>
-          </div>` : '';
-      
-      billingDetails = `
-        <div class="billing-details">
-          ${amount}
-          ${nextBilling}
-          ${billing.status && billing.status !== 'active' 
-            ? `<div class="detail-item" style="border-color:var(--danger)">
-                <div class="detail-label">Status</div>
-                <div class="detail-value" style="color:var(--danger)">${billing.status}</div>
-              </div>`
-            : ''
-          }
-        </div>
-      `;
-    }
-    
-    content.innerHTML = `
-      <div class="billing-header">
-        <span class="plan-badge ${tier}">${planName}</span>
-        <span class="alert-count">
-          ${alerts.used} / ${alerts.max} active searches
-        </span>
-      </div>
-      
-      ${billingDetails}
-      
-      <div class="usage-bar">
-        <div class="usage-fill" style="width:${usagePercent}%"></div>
-      </div>
-      <div class="usage-text">${alerts.used} of ${alerts.max} searches used</div>
-      
-      <div class="billing-actions">
-        <button id="btn-manage-billing-dashboard" class="secondary">Manage billing</button>
-        <a href="/billing" class="secondary" style="text-decoration:none;display:inline-block;padding:8px 12px;border-radius:8px;border:1px solid rgba(16,24,40,0.06);font-size:14px">View full details</a>
-      </div>
-    `;
-    
-    // Wire up manage billing button
-    const manageBtn = document.getElementById('btn-manage-billing-dashboard');
-    if (manageBtn) {
-      manageBtn.onclick = async () => {
-        try {
-          const res = await apiRequest('POST', '/api/billing/portal');
-          if (res.url) window.location.href = res.url;
-        } catch (err) {
-          showMessage(err.error || 'Failed to open billing portal', true);
-        }
-      };
-    }
-    
-  } catch (err) {
-    console.error('Failed to load billing summary:', err);
-    content.innerHTML = '<div style="color:var(--danger)">Failed to load billing information</div>';
-  }
 }
 
 function init() {
@@ -950,8 +897,14 @@ async function ensureCanCreateSearchAlert() {
       apiRequest('GET', '/api/auth/me'),
       apiRequest('GET', '/api/alerts'),
     ]);
-    if (meRes?.user?.subscription_tier === 'premium') return true;
+    const tier = meRes?.user?.subscription_tier;
+    if (tier === 'premium') return true;
     const alerts = alertsRes.alerts || [];
+    if (tier === 'free') {
+      const totalSearchCount = alerts.filter(a => a.alert_type === 'search').length;
+      if (totalSearchCount >= 1) { showLimitModal(); return false; }
+      return true;
+    }
     const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
     if (activeSearchCount >= 1) { showLimitModal(); return false; }
     return true;

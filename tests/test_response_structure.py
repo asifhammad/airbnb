@@ -1,5 +1,6 @@
+import os
 import sys
-sys.path.insert(0, 'src/python')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 from airbnb_search import get_api_key, build_raw_params, search_page, get_op_hash
 from urllib.parse import urlparse, parse_qs
 import pyairbnb.utils as utils

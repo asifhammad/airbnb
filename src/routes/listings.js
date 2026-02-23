@@ -127,7 +127,8 @@ router.get('/notifications/recent', authenticateToken, async (req, res) => {
     const result = await query(
       `SELECT n.*, l.name as listing_name, l.url as listing_url,
               sa.location, sa.check_in, sa.check_out,
-              sr.old_price, sr.new_price
+              COALESCE(sr.old_price, NULLIF(n.payload->'prices'->>'old_price', '')::numeric) AS old_price,
+              COALESCE(sr.new_price, NULLIF(n.payload->'prices'->>'new_price', '')::numeric) AS new_price
        FROM notifications n
        LEFT JOIN listings l        ON n.listing_id       = l.listing_id
        LEFT JOIN search_alerts sa  ON n.search_alert_id  = sa.id

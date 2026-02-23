@@ -4,8 +4,8 @@
   deciding which listings match a search alert.
 */
 import assert from 'assert';
-import { query } from './src/db/index.js';
-import { runSearchAlert } from './src/workers/scraper-worker.js';
+import { query } from '../src/db/index.js';
+import { runSearchAlert } from '../src/workers/scraper-worker.js';
 
 async function createTestUser() {
   const res = await query("INSERT INTO users (email, subscription_tier) VALUES ($1, $2) RETURNING id", ['test+avail@example.com', 'premium']);

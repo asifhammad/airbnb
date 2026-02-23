@@ -1,7 +1,7 @@
 import pkg from 'pg';
 const { Pool } = pkg;
 import dotenv from 'dotenv';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -126,13 +126,12 @@ export const query     = (text, params) => pool.query(text, params);
 export const getClient = () => pool.connect();
 export const dbStatus  = () => ({ usingReplica, primary: 'Supabase', replica: replicaPool ? 'Railway' : null });
 
-// Migration function
-export async function migrate() {
-  console.log('Running database migrations...');
-  const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
+// Helper to run migrations on a specific pool
+async function runMigrationsOnPool(targetPool, label) {
+  console.log(`\n📂 Running migrations on ${label}...`);
 
-  // Split SQL file into individual statements and run sequentially so we can
-  // ignore 'already exists' errors for idempotent migrations.
+  // Step 1: Run schema.sql (create tables/indexes if they don't exist)
+  const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
   const statements = schema
     .split(/;\s*(?:\r?\n|$)/)
     .map((s) => s.trim())
@@ -140,20 +139,84 @@ export async function migrate() {
 
   for (const stmt of statements) {
     try {
-      await pool.query(stmt);
+      await targetPool.query(stmt);
     } catch (err) {
       // Ignore errors for objects that already exist (indexes/tables/etc.)
       // 42P07 = duplicate_table/index, 42710 = duplicate_object
       if (err && (err.code === '42P07' || err.code === '42710')) {
-        console.warn('Migration - object already exists, skipping:', err.message);
+        console.warn('  - object already exists, skipping');
         continue;
       }
-      console.error('❌ Migration error:', err);
+      console.error(`❌ Schema migration error on ${label}:`, err);
+      throw err;
+    }
+  }
+  console.log(`  ✅ Schema migrations completed on ${label}`);
+
+  // Step 2: Run migration files from migrations/ directory (in alphabetical order)
+  const migrationsDir = join(__dirname, 'migrations');
+  try {
+    const migrationFiles = readdirSync(migrationsDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    for (const file of migrationFiles) {
+      const migrationPath = join(migrationsDir, file);
+      const migrationSql = readFileSync(migrationPath, 'utf-8');
+      const migrationStatements = migrationSql
+        .split(/;\s*(?:\r?\n|$)/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      console.log(`  Running: ${file}`);
+      for (const stmt of migrationStatements) {
+        try {
+          await targetPool.query(stmt);
+        } catch (err) {
+          // Ignore "already exists" errors for idempotent operations
+          if (err && (err.code === '42P07' || err.code === '42710')) {
+            console.warn(`    - object already exists, skipping`);
+            continue;
+          }
+          console.error(`  ❌ Error in ${file}:`, err.message);
+          throw err;
+        }
+      }
+      console.log(`    ✅ ${file} completed`);
+    }
+  } catch (err) {
+    // If migrations directory doesn't exist, that's OK (nothing to migrate yet)
+    if (err.code === 'ENOENT') {
+      console.log('  (no migrations directory found, skipping)');
+    } else {
+      throw err;
+    }
+  }
+}
+
+// Migration function — runs on BOTH primary and replica
+export async function migrate() {
+  console.log('🚀 Starting database migrations on all configured databases...');
+
+  // Always run on primary (Supabase)
+  try {
+    await runMigrationsOnPool(primaryPool, 'Primary (Supabase)');
+  } catch (err) {
+    console.error('❌ Primary migration failed:', err.message);
+    throw err;
+  }
+
+  // Also run on replica (Railway) if configured
+  if (replicaPool) {
+    try {
+      await runMigrationsOnPool(replicaPool, 'Replica (Railway)');
+    } catch (err) {
+      console.error('❌ Replica migration failed:', err.message);
       throw err;
     }
   }
 
-  console.log('✅ Database migrations completed successfully');
+  console.log('\n✅ All database migrations completed successfully on all databases');
 }
 
 // Run migration if called directly

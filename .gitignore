@@ -33,3 +33,6 @@ build/
 # Temp files
 *.tmp
 /tmp/*
+
+# Migration export logs (can contain sensitive hashed auth data)
+src/db/migration-log-*.json

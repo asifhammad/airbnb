@@ -63,6 +63,7 @@ railway env
      - `DATABASE_URL`
      - `REDIS_URL`
      - `DATABASE_REPLICA_URL` (if using)
+     - `STRIPE_*` variables (secret key, price IDs, webhook secret)
      - `EMAIL_*` variables
      - Any other env vars used
 9. **Click Deploy**
@@ -129,6 +130,14 @@ Make sure both services have these variables set:
 
 ### Redis (for job queue)
 - `REDIS_URL` - Redis connection
+
+### Stripe (for payments & subscriptions)
+- `STRIPE_SECRET_KEY` - your Stripe secret key
+- `STRIPE_PUBLISHABLE_KEY` - your Stripe publishable key
+- `STRIPE_PRICE_BASIC_MONTHLY` - Stripe price ID for basic monthly plan
+- `STRIPE_PRICE_PREMIUM_MONTHLY` - Stripe price ID for premium monthly plan
+- `STRIPE_PRICE_PREMIUM_YEARLY` - Stripe price ID for premium yearly plan
+- `STRIPE_WEBHOOK_SECRET` - Stripe webhook signing secret (for webhook verification)
 
 ### Email
 - `EMAIL_SERVICE` - gmail (or other)

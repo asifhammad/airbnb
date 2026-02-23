@@ -25,11 +25,31 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const sessionSecret = process.env.SESSION_SECRET;
 
-// Trust the first hop from Railway/reverse proxy so req.ip reflects the real
-// client IP rather than the proxy address. This makes rate limiters and audit
-// log IPs accurate. '1' = trust one proxy hop.
-if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+if (process.env.NODE_ENV === 'production' && !sessionSecret) {
+  throw new Error('SESSION_SECRET must be set in production');
+}
+
+function resolveTrustProxy() {
+  // Explicit override wins: TRUST_PROXY=false|true|1|2...
+  if (process.env.TRUST_PROXY !== undefined) {
+    const raw = String(process.env.TRUST_PROXY).trim().toLowerCase();
+    if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+    if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return 1;
+    const asNum = Number.parseInt(raw, 10);
+    return Number.isFinite(asNum) ? asNum : 1;
+  }
+
+  // Railway/reverse proxy setups send X-Forwarded-* headers.
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL) return 1;
+
+  // Default to off for local/non-proxy environments.
+  return false;
+}
+
+const trustProxy = resolveTrustProxy();
+if (trustProxy !== false) app.set('trust proxy', trustProxy);
 
 // ── Stripe webhook MUST be registered before express.json() consumes the body ──
 // Stripe signature verification requires the raw Buffer, not a parsed object.
@@ -73,7 +93,7 @@ app.use(
       createTableIfMissing: true,
       errorLog: (err) => logger.error('Session store error:', err),
     }),
-    secret: process.env.SESSION_SECRET || 'change-this-in-production',
+    secret: sessionSecret || 'dev-only-session-secret',
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -110,10 +130,18 @@ app.use((req, res, next) => {
     '/billing': '/billing.html',
     '/admin': '/admin.html',
   };
-  
-  // If the request path matches a clean URL, rewrite to .html
-  if (cleanToHtml[req.path]) {
-    req.url = cleanToHtml[req.path];
+
+  // Normalize trailing slash so /auth/ resolves like /auth.
+  const normalizedPath =
+    req.path.length > 1 && req.path.endsWith('/')
+      ? req.path.slice(0, -1)
+      : req.path;
+
+  // If the request path matches a clean URL, rewrite to .html (preserve query string).
+  if (cleanToHtml[normalizedPath]) {
+    const qIndex = req.url.indexOf('?');
+    const query = qIndex >= 0 ? req.url.slice(qIndex) : '';
+    req.url = `${cleanToHtml[normalizedPath]}${query}`;
   }
   
   next();

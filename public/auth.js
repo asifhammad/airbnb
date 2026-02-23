@@ -12,6 +12,30 @@ function showMessage(msg, isError = false) {
 function validateEmail(v) { return typeof v === 'string' && v.includes('@') && v.indexOf(' ') === -1; }
 function validatePassword(v) { return typeof v === 'string' && v.length >= 8; }
 
+function isButtonLoading(button) {
+  return !!button && button.dataset.loading === '1';
+}
+
+function setButtonLoading(button, isLoading, loadingText = 'Loading...') {
+  if (!button) return;
+
+  if (isLoading) {
+    if (isButtonLoading(button)) return;
+    button.dataset.loading = '1';
+    button.dataset.originalText = button.textContent;
+    button.textContent = loadingText;
+    button.classList.add('loading');
+    button.disabled = true;
+    return;
+  }
+
+  button.dataset.loading = '0';
+  button.classList.remove('loading');
+  if (button.dataset.originalText) {
+    button.textContent = button.dataset.originalText;
+  }
+}
+
 function switchToForm(formId) {
   document.querySelectorAll('#login-card, #register-card, #forgot-password-card, #reset-password-card')
     .forEach(card => card.style.display = 'none');
@@ -61,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLogin     = $('#btn-login');
 
   const updateLoginButton = () => {
-    if (btnLogin) btnLogin.disabled =
+    if (btnLogin && !isButtonLoading(btnLogin)) btnLogin.disabled =
       !(validateEmail(loginEmailEl.value.trim()) && validatePassword(loginPassEl.value || ''));
   };
   loginEmailEl?.addEventListener('input', updateLoginButton);
@@ -77,6 +101,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnLogin?.addEventListener('click', async (e) => {
     e.preventDefault();
+    if (isButtonLoading(btnLogin)) return;
+    let keepLoading = false;
+    setButtonLoading(btnLogin, true, 'Logging in...');
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -90,9 +117,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) return showMessage(json.error || 'Authentication failed', true);
       showMessage('Logged in — redirecting…');
+      keepLoading = true;
       setTimeout(() => { window.location.href = '/'; }, 600);
     } catch {
       showMessage('Request failed', true);
+    } finally {
+      if (!keepLoading) {
+        setButtonLoading(btnLogin, false);
+        updateLoginButton();
+      }
     }
   });
 
@@ -104,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnRegister     = $('#btn-register');
 
   const updateRegisterButton = () => {
-    if (btnRegister) btnRegister.disabled =
+    if (btnRegister && !isButtonLoading(btnRegister)) btnRegister.disabled =
       !(validateEmail(registerEmailEl.value.trim()) && validatePassword(registerPassEl.value || ''));
   };
   registerEmailEl?.addEventListener('input', updateRegisterButton);
@@ -120,6 +153,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnRegister?.addEventListener('click', async (e) => {
     e.preventDefault();
+    if (isButtonLoading(btnRegister)) return;
+    let keepLoading = false;
+    setButtonLoading(btnRegister, true, 'Creating account...');
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -133,9 +169,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) return showMessage(json.error || 'Registration failed', true);
       showMessage('Registered — redirecting…');
+      keepLoading = true;
       setTimeout(() => { window.location.href = '/'; }, 600);
     } catch {
       showMessage('Request failed', true);
+    } finally {
+      if (!keepLoading) {
+        setButtonLoading(btnRegister, false);
+        updateRegisterButton();
+      }
     }
   });
 
@@ -144,13 +186,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSendReset  = $('#btn-send-reset');
 
   const updateForgotButton = () => {
-    if (btnSendReset) btnSendReset.disabled = !validateEmail(forgotEmailEl.value.trim());
+    if (btnSendReset && !isButtonLoading(btnSendReset)) {
+      btnSendReset.disabled = !validateEmail(forgotEmailEl.value.trim());
+    }
   };
   forgotEmailEl?.addEventListener('input', updateForgotButton);
   forgotEmailEl?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !btnSendReset.disabled) btnSendReset.click(); });
 
   btnSendReset?.addEventListener('click', async (e) => {
     e.preventDefault();
+    if (isButtonLoading(btnSendReset)) return;
+    setButtonLoading(btnSendReset, true, 'Sending...');
     try {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
@@ -164,6 +210,9 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => { switchToForm('auth'); forgotEmailEl.value = ''; updateForgotButton(); }, 2000);
     } catch {
       showMessage('Request failed', true);
+    } finally {
+      setButtonLoading(btnSendReset, false);
+      updateForgotButton();
     }
   });
 
@@ -176,7 +225,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const updateResetButton = () => {
     const p = resetPassEl?.value || '';
-    if (btnReset) btnReset.disabled = !(validatePassword(p) && p === (resetConfirmEl?.value || ''));
+    if (btnReset && !isButtonLoading(btnReset)) {
+      btnReset.disabled = !(validatePassword(p) && p === (resetConfirmEl?.value || ''));
+    }
   };
   resetPassEl?.addEventListener('input', updateResetButton);
   resetConfirmEl?.addEventListener('input', updateResetButton);
@@ -191,8 +242,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnReset?.addEventListener('click', async (e) => {
     e.preventDefault();
+    if (isButtonLoading(btnReset)) return;
+    setButtonLoading(btnReset, true, 'Resetting...');
     const token = new URLSearchParams(window.location.search).get('reset_token');
-    if (!token) return showMessage('Invalid reset link', true);
+    if (!token) {
+      showMessage('Invalid reset link', true);
+      setButtonLoading(btnReset, false);
+      updateResetButton();
+      return;
+    }
     try {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
@@ -206,14 +264,13 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => { window.location.href = '/auth.html'; }, 2000);
     } catch {
       showMessage('Request failed', true);
+    } finally {
+      setButtonLoading(btnReset, false);
+      updateResetButton();
     }
   });
 
   $('#btn-back-to-login-2')?.addEventListener('click', (e) => { e.preventDefault(); switchToForm('auth'); });
-
-  // ── Google OAuth ───────────────────────────────────────────────────────────
-  $('#btn-google-login')?.addEventListener('click',    (e) => { e.preventDefault(); window.location.href = '/api/auth/google'; });
-  $('#btn-google-register')?.addEventListener('click', (e) => { e.preventDefault(); window.location.href = '/api/auth/google'; });
 
   // ── Init ───────────────────────────────────────────────────────────────────
   const params = new URLSearchParams(window.location.search);
