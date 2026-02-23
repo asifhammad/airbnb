@@ -7,6 +7,20 @@ import logger from '../utils/logger.js';
  * Schedule periodic scraping jobs based on subscription tiers
  */
 export function startScheduler() {
+  async function enqueueAlert(alert, priority) {
+    try {
+      if (alert.alert_type === 'search') {
+        await addSearchJob(alert.id, priority);
+      } else if (alert.alert_type === 'listing') {
+        await addListingJob(alert.id, priority);
+      }
+      return true;
+    } catch (err) {
+      logger.warn(`Failed to queue alert ${alert.id} (${priority}): ${err.message}`);
+      return false;
+    }
+  }
+
   // Check basic tier alerts (once per day at 9 AM)
   cron.schedule('0 9 * * *', async () => {
     logger.info('Running daily basic tier scraping...');
@@ -23,15 +37,12 @@ export function startScheduler() {
          )`
       );
 
+      let queued = 0;
       for (const alert of result.rows) {
-        if (alert.alert_type === 'search') {
-          await addSearchJob(alert.id, 'normal');
-        } else if (alert.alert_type === 'listing') {
-          await addListingJob(alert.id, 'normal');
-        }
+        if (await enqueueAlert(alert, 'normal')) queued += 1;
       }
 
-      logger.info(`Queued ${result.rows.length} basic tier and free trial alerts`);
+      logger.info(`Queued ${queued}/${result.rows.length} basic tier and free trial alerts`);
     } catch (error) {
       logger.error('Basic tier scheduling error:', error);
     }
@@ -51,15 +62,12 @@ export function startScheduler() {
          AND u.subscription_status = 'active'`
       );
 
+      let queued = 0;
       for (const alert of result.rows) {
-        if (alert.alert_type === 'search') {
-          await addSearchJob(alert.id, 'high');
-        } else if (alert.alert_type === 'listing') {
-          await addListingJob(alert.id, 'high');
-        }
+        if (await enqueueAlert(alert, 'high')) queued += 1;
       }
 
-      logger.info(`Queued ${result.rows.length} premium tier alerts`);
+      logger.info(`Queued ${queued}/${result.rows.length} premium tier alerts`);
     } catch (error) {
       logger.error('Premium tier scheduling error:', error);
     }

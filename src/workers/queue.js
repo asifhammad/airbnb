@@ -1,10 +1,22 @@
 import Queue from 'bull';
 import dotenv from 'dotenv';
+import Redis from 'ioredis';
 
 dotenv.config();
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+
+function createRedisClient() {
+  return new Redis(redisUrl, {
+    // Avoid hard-failing commands at the default 20 retries during transient Redis issues.
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+}
+
 // Create queue
-export const scrapeQueue = new Queue('airbnb-scrape', process.env.REDIS_URL || 'redis://localhost:6379', {
+export const scrapeQueue = new Queue('airbnb-scrape', redisUrl, {
+  createClient: () => createRedisClient(),
   defaultJobOptions: {
     removeOnComplete: 100, // Keep last 100 completed jobs
     removeOnFail: 200,     // Keep last 200 failed jobs
@@ -49,6 +61,10 @@ scrapeQueue.on('failed', (job, err) => {
 
 scrapeQueue.on('stalled', (job) => {
   console.warn(`⚠️  Job ${job.id} stalled`);
+});
+
+scrapeQueue.on('error', (err) => {
+  console.error('❌ Queue connection error:', err.message);
 });
 
 export default scrapeQueue;
