@@ -5,6 +5,16 @@ import Redis from 'ioredis';
 dotenv.config();
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+let lastQueueErrorLogAt = 0;
+
+function redisTargetLabel(url) {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.hostname}:${u.port || (u.protocol === 'rediss:' ? '6379' : '6379')}`;
+  } catch {
+    return 'invalid-redis-url';
+  }
+}
 
 function createRedisClient() {
   return new Redis(redisUrl, {
@@ -64,7 +74,14 @@ scrapeQueue.on('stalled', (job) => {
 });
 
 scrapeQueue.on('error', (err) => {
-  console.error('❌ Queue connection error:', err.message);
+  const now = Date.now();
+  // Avoid flooding logs on reconnect loops; keep one detailed line every 10s.
+  if (now - lastQueueErrorLogAt < 10_000) return;
+  lastQueueErrorLogAt = now;
+  const code = err?.code ? ` code=${err.code}` : '';
+  const name = err?.name ? ` name=${err.name}` : '';
+  const msg = err?.message || 'unknown error';
+  console.error(`❌ Queue connection error to ${redisTargetLabel(redisUrl)}:${code}${name} ${msg}`);
 });
 
 export default scrapeQueue;
