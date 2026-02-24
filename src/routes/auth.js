@@ -714,16 +714,25 @@ router.post('/forgot-password', forgotPasswordLimiter, forgotPasswordValidation,
     // Triggers Dreamlit workflow: supabase.auth.resetPasswordForEmail()
     const forgotRedirectTo = `${FRONTEND_BASE_URL}/auth`;
     const recoverPath = `/auth/v1/recover?redirect_to=${encodeURIComponent(forgotRedirectTo)}`;
-    await supabaseAuthRequest(recoverPath, {
-      method: 'POST',
-      body: {
-        email,
-        redirect_to: forgotRedirectTo,
-      },
-    }).catch((err) => {
-      // Keep response generic for provider errors while preserving account validation above.
-      logger.warn('Supabase recover request handled with non-2xx:', err.message);
-    });
+    try {
+      await supabaseAuthRequest(recoverPath, {
+        method: 'POST',
+        body: {
+          email,
+          redirect_to: forgotRedirectTo,
+        },
+      });
+    } catch (err) {
+      logger.warn('Supabase recover request failed:', err.message);
+      if (err?.status === 429) {
+        return res.status(429).json({
+          error: 'Password reset email rate limit reached. Please wait and try again.'
+        });
+      }
+      return res.status(502).json({
+        error: 'Failed to send password reset link. Please try again shortly.'
+      });
+    }
 
     // Best-effort audit with local user linkage if present
     if (localUserId) {

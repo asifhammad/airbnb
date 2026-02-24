@@ -101,6 +101,38 @@ async function findUserByStripeCustomerId(stripeCustomerId) {
   return userRes.rows[0] || null;
 }
 
+async function markWebhookEventStarted(event) {
+  try {
+    const result = await query(
+      `INSERT INTO stripe_webhook_events (event_id, event_type)
+       VALUES ($1, $2)
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING event_id`,
+      [event.id, event.type]
+    );
+    return result.rows.length > 0;
+  } catch (err) {
+    if (err?.code === '42P01') {
+      logger.warn('stripe_webhook_events table missing; processing webhook without idempotency ledger');
+      return true;
+    }
+    throw err;
+  }
+}
+
+async function markWebhookEventProcessed(eventId) {
+  try {
+    await query(
+      `UPDATE stripe_webhook_events
+       SET processed_at = CURRENT_TIMESTAMP
+       WHERE event_id = $1`,
+      [eventId]
+    );
+  } catch (err) {
+    if (err?.code !== '42P01') throw err;
+  }
+}
+
 // Upsert the local subscriptions row from a Stripe subscription object
 async function syncSubscription(sub) {
   const planKey = planKeyFromPriceId(sub.items.data[0]?.price?.id);
@@ -279,6 +311,12 @@ export async function stripeWebhookHandler(req, res) {
   }
 
   try {
+    const shouldProcess = await markWebhookEventStarted(event);
+    if (!shouldProcess) {
+      logger.info(`Stripe webhook replay ignored: ${event.id} (${event.type})`);
+      return res.json({ received: true, duplicate: true });
+    }
+
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
@@ -370,6 +408,7 @@ export async function stripeWebhookHandler(req, res) {
         break;
     }
 
+    await markWebhookEventProcessed(event.id);
     res.json({ received: true });
   } catch (err) {
     logger.error('Webhook handler error:', err);

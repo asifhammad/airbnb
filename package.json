@@ -47,6 +47,7 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.11.3",
+    "posthog-js": "^1.353.0",
     "stripe": "^14.0.0",
     "winston": "^3.11.0"
   },

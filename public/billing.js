@@ -1,4 +1,9 @@
 const $ = (sel) => document.querySelector(sel);
+const analytics = window.analytics || null;
+
+function track(event, props) {
+  try { analytics?.track?.(event, props || {}); } catch (_) { /* no-op */ }
+}
 
 async function apiRequest(method, path, body) {
   const opts = {
@@ -167,14 +172,19 @@ async function handleConfirmUpgrade() {
   const btn = $('#btn-confirm-upgrade');
   setBtnLoading(btn, true, 'Redirecting…');
   try {
+    track('checkout_started', { plan_key: _selectedPlanKey });
     const res = await apiRequest('POST', '/api/billing/checkout', { plan_key: _selectedPlanKey });
-    if (res.url) window.location.href = res.url;
+    if (res.url) {
+      track('checkout_redirected', { plan_key: _selectedPlanKey });
+      window.location.href = res.url;
+    }
   } catch (err) {
     if (err.already_subscribed) {
       // Already subscribed — open portal to switch plans
       showMessage('Opening billing portal to switch plans…');
       await handleManageBilling();
     } else {
+      track('checkout_failed', { plan_key: _selectedPlanKey, reason: err.error || 'unknown_error' });
       showMessage(err.error || 'Failed to start checkout', true);
     }
   } finally {
@@ -187,7 +197,10 @@ async function handleManageBilling() {
   setBtnLoading(btn, true, 'Opening portal…');
   try {
     const res = await apiRequest('POST', '/api/billing/portal');
-    if (res.url) window.location.href = res.url;
+    if (res.url) {
+      track('billing_portal_opened', {});
+      window.location.href = res.url;
+    }
   } catch (err) {
     showMessage(err.error || 'Failed to open billing portal', true);
   } finally {
@@ -210,7 +223,11 @@ async function init() {
   const urlParams = new URLSearchParams(window.location.search);
   const returningFromCheckout = urlParams.get('checkout');
   if (returningFromCheckout === 'success') {
+    track('checkout_returned', { status: 'success' });
     showMessage('Payment received. Confirming your subscription…');
+  }
+  if (returningFromCheckout === 'cancelled') {
+    track('checkout_returned', { status: 'cancelled' });
   }
   if (urlParams.get('checkout') === 'success') {
     // verify against server state after webhook processing
@@ -223,8 +240,10 @@ async function init() {
   if (returningFromCheckout === 'success') {
     const status = subData?.subscription?.status;
     if (status === 'active' || status === 'trialing') {
+      track('checkout_succeeded', { subscription_status: status });
       showMessage('Payment successful — your plan is now active!');
     } else {
+      track('checkout_processing', { subscription_status: status || 'unknown' });
       showMessage('Payment was completed, but activation is still processing. Refresh in a moment if needed.');
     }
     history.replaceState({}, '', '/billing');

@@ -1,9 +1,38 @@
 const $ = (sel) => document.querySelector(sel);
+const analytics = window.analytics || null;
+
+function track(event, props) {
+  try { analytics?.track?.(event, props || {}); } catch (_) { /* no-op */ }
+}
+
+function identifyUser(distinctId, props) {
+  try { analytics?.identify?.(distinctId, props || {}); } catch (_) { /* no-op */ }
+}
 
 function isAirbnbHostname(hostname) {
   if (!hostname) return false;
   const normalized = String(hostname).toLowerCase();
   return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeExternalUrl(url) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return '';
+    return parsed.toString();
+  } catch (_) {
+    return '';
+  }
 }
 
 /**
@@ -101,6 +130,7 @@ async function createUrlAlert() {
     }
     if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from airbnb.com', true);
     const res = await apiRequest('POST', '/api/alerts/url', { search_url });
+    track('alert_created', { source: 'search_url', is_free_trial: Boolean(res?.is_free_trial) });
     
     // Show appropriate message based on alert type
     if (res.is_free_trial) {
@@ -272,18 +302,18 @@ function renderAlerts(alerts) {
       expirationInfo = `<span class="badge free-trial">Running 1x per day</span>`;
     }
     
-    const title = getAlertTitle(a);
+    const title = escapeHtml(getAlertTitle(a));
     const isActive = a.is_active !== false;
-    const typeLabel = a.alert_type === 'listing' ? 'Listing alert' : 'Search alert';
+    const typeLabel = escapeHtml(a.alert_type === 'listing' ? 'Listing alert' : 'Search alert');
     const statusBadge = `<span class="badge ${isActive ? '' : 'free-trial'}">${isActive ? 'Active' : 'Paused'}</span>`;
-    const checkMeta = a.last_checked ? `Last checked ${new Date(a.last_checked).toLocaleString()}` : 'Not checked yet';
+    const checkMeta = escapeHtml(a.last_checked ? `Last checked ${new Date(a.last_checked).toLocaleString()}` : 'Not checked yet');
     const notifMeta = Number.isFinite(Number(a.notification_count))
-      ? `${a.notification_count} notifications`
-      : '0 notifications';
+      ? `${escapeHtml(a.notification_count)} notifications`
+      : escapeHtml('0 notifications');
     const controlsHtml = `
         <div class="controls">
-          ${a.alert_type === 'search' ? `<button data-id="${a.id}" class="btn-see-search">See your search</button>` : ''}
-          <button data-id="${a.id}" class="btn-unsubscribe">Unsubscribe</button>
+          ${a.alert_type === 'search' ? `<button data-id="${escapeHtml(a.id)}" class="btn-see-search">See your search</button>` : ''}
+          <button data-id="${escapeHtml(a.id)}" class="btn-unsubscribe">Unsubscribe</button>
         </div>
       `;
     
@@ -321,6 +351,7 @@ function renderAlerts(alerts) {
   document.querySelectorAll('.btn-see-search').forEach((btn) => {
     btn.onclick = async (e) => {
       const id = e.target.dataset.id;
+      track('alert_search_view_clicked', { search_alert_id: Number(id) || null });
       const alertItem = alerts.find(x => x.id == id) || {};
       const url = alertItem.search_url || alertItem.searchUrl || '';
       if (!url) return showMessage('No search URL available', true);
@@ -394,22 +425,31 @@ function renderListings(listings) {
     const id = l.listing_id || l.listingid || l.id || '';
     const card = document.createElement('div');
     card.className = 'listing-card';
-    const photoUrl = (l.photos && l.photos.length) ? (l.photos[0].url || l.photos[0]) : '';
-    const listingUrl = l.url || (id ? `https://www.airbnb.com/rooms/${id}` : '');
+    const photoUrlRaw = (l.photos && l.photos.length) ? (l.photos[0].url || l.photos[0]) : '';
+    const photoUrl = sanitizeExternalUrl(photoUrlRaw);
+    const listingUrl = sanitizeExternalUrl(l.url || (id ? `https://www.airbnb.com/rooms/${id}` : ''));
+    const listingName = escapeHtml(l.name || 'listing');
+    const listingAddress = escapeHtml((l.address || '').substring(0, 120));
+    const ratingValue = escapeHtml(l.rating ? (l.rating.guest_satisfaction || l.rating) : '—');
+    const priceText = escapeHtml(
+      l.price
+        ? (typeof l.price === 'object' ? ('$' + (l.price.unit?.amount || l.price.amount || '')) : ('$' + l.price))
+        : ''
+    );
     card.innerHTML = `
       <div class="listing-thumb">
-        ${photoUrl ? `${listingUrl ? `<a href="${listingUrl}" target="_blank" rel="noopener noreferrer" aria-label="Open listing in Airbnb">` : ''}<img src="${photoUrl}" loading="lazy" alt="${(l.name||'listing').replace(/"/g,'')}">${listingUrl ? `</a>` : ''}` : ''}
-        <div class="price-badge">${l.price ? (typeof l.price === 'object' ? ('$' + (l.price.unit?.amount || l.price.amount || '')) : ('$' + l.price)) : ''}</div>
+        ${photoUrl ? `${listingUrl ? `<a href="${listingUrl}" target="_blank" rel="noopener noreferrer" aria-label="Open listing in Airbnb">` : ''}<img src="${photoUrl}" loading="lazy" alt="${listingName}">${listingUrl ? `</a>` : ''}` : ''}
+        <div class="price-badge">${priceText}</div>
       </div>
       <div class="listing-meta">
-        <div class="listing-title">${l.name || '—'}</div>
-        <div class="listing-sub">${(l.address || '').substring(0, 120)}</div>
+        <div class="listing-title">${listingName || '—'}</div>
+        <div class="listing-sub">${listingAddress}</div>
         <div style="margin-top:8px">
-          <span class="rating">⭐ ${l.rating ? (l.rating.guest_satisfaction || l.rating) : '—'}</span>
+          <span class="rating">⭐ ${ratingValue}</span>
         </div>
         <div class="listing-actions">
-          <button data-id="${id}" class="btn-open-details">Details</button>
-          <button data-url="${l.url || ''}" class="btn-share">Share</button>
+          <button data-id="${escapeHtml(id)}" class="btn-open-details">Details</button>
+          <button data-url="${listingUrl}" class="btn-share">Share</button>
         </div>
       </div>
     `;
@@ -629,7 +669,7 @@ function renderPreviewResults(results, total) {
 
   results.forEach((l) => {
     const id = l.id || l.listing_id || '';
-  const photoUrl = (l.photos && l.photos.length) ? (l.photos[0].url || l.photos[0]) : '';
+  const photoUrl = sanitizeExternalUrl((l.photos && l.photos.length) ? (l.photos[0].url || l.photos[0]) : '');
   // compute badges (server already added isSaved/isSuperhost/_priceAmount/_reviewsCount)
     const badges = [];
     if (l.isSaved) badges.push('<span class="badge saved">Saved</span>');
@@ -641,26 +681,34 @@ function renderPreviewResults(results, total) {
     if (priceAmt >= (previewState.params?.premium_min_price || previewState.params?.min_price || 200)) badges.push('<span class="badge premium">Premium</span>');
     if (reviews >= (previewState.params?.popular_min_reviews || 50) || (ratingVal >= (previewState.params?.popular_min_rating || 4.7) && reviews >= 10)) badges.push('<span class="badge popular">Popular</span>');
 
-    const listingUrl = l.url || (id ? `https://www.airbnb.com/rooms/${id}` : '');
+    const listingUrl = sanitizeExternalUrl(l.url || (id ? `https://www.airbnb.com/rooms/${id}` : ''));
+    const listingName = escapeHtml(l.name || 'listing');
+    const listingSub = escapeHtml((l.address || l.url || '').substring(0, 120));
+    const ratingValue = escapeHtml(l.rating ? (l.rating.guest_satisfaction || l.rating.value || l.rating) : '—');
+    const priceText = escapeHtml(
+      l.price
+        ? (typeof l.price === 'object' ? ('$' + (l.price.unit?.amount || l.price.amount || '')) : ('$' + l.price))
+        : ''
+    );
     const card = document.createElement('div');
     card.className = 'listing-card';
     card.innerHTML = `
       <div class="listing-thumb">
-        ${photoUrl ? `${listingUrl ? `<a href="${listingUrl}" target="_blank" rel="noopener noreferrer" aria-label="Open listing in Airbnb">` : ''}<img src="${photoUrl}" loading="lazy" alt="${(l.name||'listing').replace(/"/g,'')}">${listingUrl ? `</a>` : ''}` : ''}
-        <div class="price-badge">${l.price ? (typeof l.price === 'object' ? ('$' + (l.price.unit?.amount || l.price.amount || '')) : ('$' + l.price)) : ''}</div>
+        ${photoUrl ? `${listingUrl ? `<a href="${listingUrl}" target="_blank" rel="noopener noreferrer" aria-label="Open listing in Airbnb">` : ''}<img src="${photoUrl}" loading="lazy" alt="${listingName}">${listingUrl ? `</a>` : ''}` : ''}
+        <div class="price-badge">${priceText}</div>
       </div>
       <div class="listing-meta">
         <div style="display:flex;gap:8px;align-items:center">
-          <div class="listing-title">${l.name || '—'}</div>
+          <div class="listing-title">${listingName || '—'}</div>
           <div>${badges.join('')}</div>
         </div>
-        <div class="listing-sub">${(l.address || l.url || '').substring(0, 120)}</div>
+        <div class="listing-sub">${listingSub}</div>
         <div style="margin-top:8px">
-          <span class="rating">⭐ ${l.rating ? (l.rating.guest_satisfaction || l.rating.value || l.rating) : '—'}</span>
+          <span class="rating">⭐ ${ratingValue}</span>
         </div>
         <div class="listing-actions">
-          <button data-id="${id}" class="btn-open-details">Details</button>
-          <button data-url="${l.url || ''}" class="btn-share">Share</button>
+          <button data-id="${escapeHtml(id)}" class="btn-open-details">Details</button>
+          <button data-url="${listingUrl}" class="btn-share">Share</button>
         </div>
       </div>
     `;
@@ -697,28 +745,31 @@ async function loadNotifications() {
       container.innerHTML = '<i>No notifications yet</i>';
       return;
     }
+    track('notifications_loaded', { count: res.notifications.length });
     container.innerHTML = res.notifications.map(n => {
       const isPriceDrop = n.notification_type === 'price_drop';
       const priceChange = (isPriceDrop && n.old_price && n.new_price)
-        ? `<span style="color:#48bb78;margin-left:8px">&#x25bc; ${(n.old_price - n.new_price).toFixed(0)} (${Number(n.old_price).toFixed(0)} → ${Number(n.new_price).toFixed(0)})</span>`
+        ? `<span style="color:#48bb78;margin-left:8px">&#x25bc; ${escapeHtml((n.old_price - n.new_price).toFixed(0))} (${escapeHtml(Number(n.old_price).toFixed(0))} → ${escapeHtml(Number(n.new_price).toFixed(0))})</span>`
         : '';
-      const listingName = n.listing_name || n.listing_id || 'Listing';
-      const listingUrl = n.listing_url || '';
-      const listingImage = n.listing_image_url || '';
+      const listingName = escapeHtml(n.listing_name || n.listing_id || 'Listing');
+      const listingUrl = sanitizeExternalUrl(n.listing_url || '');
+      const listingImage = sanitizeExternalUrl(n.listing_image_url || '');
       const canOpenModal = !!(n.listing_id && /^\d+$/.test(String(n.listing_id)));
+      const notifType = escapeHtml(String(n.notification_type || '').replace('_', ' '));
+      const listingId = escapeHtml(String(n.listing_id || ''));
       return `
         <div class="alert-item">
           <div style="display:flex;gap:10px;align-items:flex-start">
-            ${listingImage ? `<img src="${listingImage}" alt="${listingName.replace(/"/g, '')}" loading="lazy" style="width:84px;height:64px;object-fit:cover;border-radius:8px;border:1px solid rgba(16,24,40,0.08)">` : ''}
+            ${listingImage ? `<img src="${listingImage}" alt="${listingName}" loading="lazy" style="width:84px;height:64px;object-fit:cover;border-radius:8px;border:1px solid rgba(16,24,40,0.08)">` : ''}
             <div style="flex:1;min-width:0">
               <div>
-                <strong>${n.notification_type.replace('_', ' ')}</strong>
+                <strong>${notifType}</strong>
                 — ${listingName}
                 ${priceChange}
               </div>
               <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
-                ${canOpenModal ? `<button class="secondary btn-view-listing" data-listing-id="${n.listing_id}">View Listing</button>` : ''}
-                ${listingUrl ? `<a href="${listingUrl}" target="_blank" rel="noopener noreferrer"><button class="secondary" type="button">Open Airbnb</button></a>` : ''}
+                ${canOpenModal ? `<button class="secondary btn-view-listing" data-listing-id="${listingId}">View Listing</button>` : ''}
+                ${listingUrl ? `<button class="secondary btn-open-airbnb" type="button" data-listing-url="${listingUrl}" data-listing-id="${listingId}">Open Airbnb</button>` : ''}
               </div>
             </div>
           </div>
@@ -728,6 +779,19 @@ async function loadNotifications() {
 
     document.querySelectorAll('.btn-view-listing').forEach((btn) => {
       btn.onclick = (e) => showListingModal(e.currentTarget.dataset.listingId);
+    });
+
+    document.querySelectorAll('.btn-open-airbnb').forEach((btn) => {
+      btn.onclick = (e) => {
+        const listingUrl = e.currentTarget.dataset.listingUrl;
+        const listingId = e.currentTarget.dataset.listingId;
+        track('notification_open_airbnb_clicked', {
+          listing_id: listingId || null,
+          source: 'notifications_feed',
+        });
+        if (!listingUrl) return;
+        window.open(listingUrl, '_blank', 'noopener,noreferrer');
+      };
     });
   } catch (err) {
     console.error(err);
@@ -758,6 +822,10 @@ async function showLoggedInState() {
     const res = await apiRequest('GET', '/api/auth/me');
     if (res && res.user) {
       tier = res.user.subscription_tier || null;
+      identifyUser(res.user.id || res.user.email || 'user', {
+        email: res.user.email || null,
+        subscription_tier: tier || null,
+      });
       const emailEl = document.getElementById('user-email-display');
       if (emailEl && res.user.email) emailEl.textContent = res.user.email;
     }

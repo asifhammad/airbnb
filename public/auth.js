@@ -1,4 +1,13 @@
 const $ = (sel) => document.querySelector(sel);
+const analytics = window.analytics || null;
+
+function track(event, props) {
+  try { analytics?.track?.(event, props || {}); } catch (_) { /* no-op */ }
+}
+
+function identifyUser(distinctId, props) {
+  try { analytics?.identify?.(distinctId, props || {}); } catch (_) { /* no-op */ }
+}
 
 function showMessage(msg, isError = false) {
   const el = $('#message');
@@ -155,6 +164,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) return showMessage(json.error || 'Authentication failed', true);
+      identifyUser(json?.user?.id || loginEmailEl.value.trim().toLowerCase(), {
+        email: loginEmailEl.value.trim().toLowerCase(),
+      });
+      track('auth_login_completed', { method: 'password' });
       showMessage('Logged in — redirecting…');
       keepLoading = true;
       setTimeout(() => { window.location.href = '/'; }, 600);
@@ -207,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isButtonLoading(btnRegister)) return;
     let keepLoading = false;
     setButtonLoading(btnRegister, true, 'Creating account...');
+    track('auth_signup_started', { method: 'password' });
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -225,11 +239,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return showMessage(json.error || 'Registration failed', true);
       }
       if (json.requires_email_confirmation) {
+        track('auth_signup_completed', { requires_email_confirmation: true });
         showMessage(json.message || 'Check your email to confirm your account.');
         registerPassEl.value = '';
         switchToTab('login');
         return;
       }
+      identifyUser(json?.user?.id || registerEmailEl.value.trim().toLowerCase(), {
+        email: registerEmailEl.value.trim().toLowerCase(),
+      });
+      track('auth_signup_completed', { requires_email_confirmation: false });
       showMessage('Registered — redirecting…');
       keepLoading = true;
       setTimeout(() => { window.location.href = '/'; }, 600);
@@ -268,6 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) return showMessage(json.error || 'Failed to send reset link', true);
+      track('auth_password_reset_requested', {});
       showMessage('Reset link sent — check your inbox!');
       setTimeout(() => { switchToForm('auth'); forgotEmailEl.value = ''; updateForgotButton(); }, 2000);
     } catch {
@@ -350,6 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) return showMessage(json.error || 'Failed to reset password', true);
+      track('auth_password_reset_completed', { flow: body.accessToken ? 'supabase' : 'legacy' });
       showMessage('Password reset — redirecting to login…');
       setTimeout(() => { window.location.href = '/auth.html'; }, 2000);
     } catch {
@@ -365,8 +386,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Init ───────────────────────────────────────────────────────────────────
   const recovery = getRecoveryContext();
   if (recovery.hasRecoveryIntent) {
+    track('auth_recovery_link_opened', { type: recovery.type || 'recovery' });
     switchToForm('reset-password');
   } else if (recovery.hasSignupConfirmIntent) {
+    track('auth_signup_email_confirmed', { type: recovery.type || 'signup' });
     switchToTab('login');
     showMessage('Email verified. You can now log in.');
   } else {

@@ -13,6 +13,7 @@ const PREMIUM_MAX_EMAILS_PER_24H = Math.max(
   Number.parseInt(process.env.PREMIUM_MAX_EMAILS_PER_24H || '3', 10) || 3
 );
 const BASIC_NOTIFICATION_COOLDOWN_HOURS = 24;
+const ICAL_MONITORING_ENABLED = String(process.env.ENABLE_ICAL_MONITORING || '').toLowerCase() === 'true';
 
 // ─── Price extraction ────────────────────────────────────────────────────────
 // The pyairbnb price object looks like:
@@ -189,6 +190,8 @@ export async function runSearchAlert(alertId, opts = {}) {
   const newListings       = [];
   const priceDropListings = [];
   const freedUpListings   = [];
+  let newListingICalFailures = 0;
+  let existingListingICalFailures = 0;
 
   for (const listing of currentListings) {
     const id       = listing.id;
@@ -253,12 +256,12 @@ export async function runSearchAlert(alertId, opts = {}) {
       // For date-specific searches, verify availability via iCal before
       // alerting — the search API returns all listings matching the filters
       // but doesn't guarantee the exact dates are open.
-      if (alert.check_in && alert.check_out) {
+      if (ICAL_MONITORING_ENABLED && alert.check_in && alert.check_out) {
         let available = false;
         try {
           available = await checkICalFn(id, alert.check_in, alert.check_out);
         } catch (err) {
-          logger.warn(`iCal check failed for new listing ${id}: ${err.message}`);
+          newListingICalFailures += 1;
           available = true; // optimistic — better to over-notify than miss
         }
         if (!available) {
@@ -310,7 +313,7 @@ export async function runSearchAlert(alertId, opts = {}) {
       }
 
       // Freed up: listing was previously unavailable for these dates but now is
-      if (alert.check_in && alert.check_out) {
+      if (ICAL_MONITORING_ENABLED && alert.check_in && alert.check_out) {
         try {
           const nowAvailable = await checkICalFn(id, alert.check_in, alert.check_out);
           if (nowAvailable) {
@@ -329,10 +332,16 @@ export async function runSearchAlert(alertId, opts = {}) {
             }
           }
         } catch (err) {
-          logger.warn(`iCal check failed for existing listing ${id}: ${err.message}`);
+          existingListingICalFailures += 1;
         }
       }
     }
+  }
+
+  if (newListingICalFailures > 0 || existingListingICalFailures > 0) {
+    logger.warn(
+      `Alert ${alertId} iCal summary — new-listing checks failed: ${newListingICalFailures}, existing-listing checks failed: ${existingListingICalFailures}`
+    );
   }
 
   // ── Mark last checked ──────────────────────────────────────────────────────
@@ -520,10 +529,12 @@ function registerQueueProcessors() {
   const alert = alertResult.rows[0];
 
   let isAvailable = false;
-  try {
-    isAvailable = await checkICalAvailability(alert.listing_id, alert.check_in, alert.check_out);
-  } catch (err) {
-    logger.warn(`iCal check failed for listing alert ${alertId}: ${err.message}`);
+  if (ICAL_MONITORING_ENABLED) {
+    try {
+      isAvailable = await checkICalAvailability(alert.listing_id, alert.check_in, alert.check_out);
+    } catch (err) {
+      logger.warn(`Listing alert ${alertId} iCal check failed; skipping availability notification for this run`);
+    }
   }
 
   if (isAvailable) {

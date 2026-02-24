@@ -1,24 +1,140 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { query, dbStatus } from '../db/index.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+const ADMIN_COOKIE = 'admin_session';
+const ADMIN_MAX_AGE_SECONDS = 8 * 60 * 60; // 8h
+
+function adminCookieOpts(maxAgeSeconds) {
+  const opts = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  };
+  return maxAgeSeconds ? { ...opts, maxAge: maxAgeSeconds * 1000 } : opts;
+}
+
+function getAdminJwtSecret() {
+  return process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || null;
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function getAllowedAdminEmails() {
+  return String(process.env.ADMIN_ALLOWED_EMAILS || '')
+    .split(',')
+    .map((e) => normalizeEmail(e))
+    .filter(Boolean);
+}
+
+function verifyCookieSession(req) {
+  const token = req.cookies?.[ADMIN_COOKIE];
+  if (!token) return null;
+  const secret = getAdminJwtSecret();
+  if (!secret) return null;
+  try {
+    const decoded = jwt.verify(token, secret);
+    if (decoded?.role !== 'admin') return null;
+    return decoded;
+  } catch (_) {
+    return null;
+  }
+}
+
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many admin login attempts. Please try again later.' },
+});
+
+router.post('/login/session', adminLoginLimiter, authenticateToken, async (req, res) => {
+  try {
+    const secret = getAdminJwtSecret();
+    if (!secret) {
+      return res.status(503).json({ error: 'Admin login unavailable (ADMIN_JWT_SECRET or JWT_SECRET missing)' });
+    }
+
+    const allowedEmails = getAllowedAdminEmails();
+    if (!allowedEmails.length) {
+      return res.status(503).json({ error: 'Admin allowlist not configured (set ADMIN_ALLOWED_EMAILS)' });
+    }
+
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Access token required' });
+
+    const userRes = await query('SELECT id, email FROM users WHERE id = $1 LIMIT 1', [userId]);
+    if (!userRes.rows.length) return res.status(401).json({ error: 'User not found' });
+
+    const email = normalizeEmail(userRes.rows[0].email);
+    if (!allowedEmails.includes(email)) {
+      return res.status(403).json({ error: 'Current user is not allowed for admin access' });
+    }
+
+    const token = jwt.sign(
+      { role: 'admin', username: email, userId, mode: 'user_session' },
+      secret,
+      { expiresIn: `${ADMIN_MAX_AGE_SECONDS}s` }
+    );
+
+    res.cookie(ADMIN_COOKIE, token, adminCookieOpts(ADMIN_MAX_AGE_SECONDS));
+    res.json({ message: 'Admin login successful', mode: 'user_session', email });
+  } catch (err) {
+    console.error('Admin session login error:', err);
+    res.status(500).json({ error: 'Failed to authenticate admin session' });
+  }
+});
+
+router.post('/logout', (req, res) => {
+  res.clearCookie(ADMIN_COOKIE, adminCookieOpts());
+  res.json({ message: 'Logged out' });
+});
+
+router.get('/session', (req, res) => {
+  const cookieSession = verifyCookieSession(req);
+  if (cookieSession) return res.json({ authenticated: true, mode: cookieSession.mode || 'user_session' });
+  return res.status(401).json({ authenticated: false });
+});
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
-// Protected by a static secret in the Authorization header, not a user session.
-// Set ADMIN_SECRET in your .env — keep it long and random.
+// Supports cookie-based admin login only.
 function requireAdminSecret(req, res, next) {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret) {
-    return res.status(503).json({ error: 'Admin access not configured (ADMIN_SECRET not set)' });
+  const cookieSession = verifyCookieSession(req);
+  if (cookieSession) {
+    req.admin = { mode: 'cookie', username: cookieSession.username || 'admin' };
+    return next();
   }
-  const provided = req.headers['x-admin-secret'];
-  if (!provided || provided !== secret) {
-    return res.status(401).json({ error: 'Invalid or missing admin secret' });
-  }
-  next();
+  return res.status(401).json({ error: 'Unauthorized admin access' });
 }
 
 router.use(requireAdminSecret);
+
+// ── GET /api/admin/product-analytics ─────────────────────────────────────────
+// Returns PostHog links for product funnel dashboards.
+router.get('/product-analytics', async (req, res) => {
+  const appHost = process.env.POSTHOG_APP_HOST || null;
+  const links = {
+    signupFunnel: process.env.POSTHOG_SIGNUP_FUNNEL_URL || null,
+    checkoutFunnel: process.env.POSTHOG_CHECKOUT_FUNNEL_URL || null,
+    alertCreationInsight: process.env.POSTHOG_ALERT_CREATION_INSIGHT_URL || null,
+    notificationCtrInsight: process.env.POSTHOG_NOTIFICATION_CTR_INSIGHT_URL || null,
+  };
+
+  const hasAnyLink = Object.values(links).some(Boolean);
+  res.json({
+    enabled: Boolean(process.env.POSTHOG_PUBLIC_KEY),
+    appHost,
+    links,
+    hasAnyLink,
+  });
+});
 
 // ── GET /api/admin/alerts ─────────────────────────────────────────────────────
 // Lists every active alert with last run status, result counts, and error state.

@@ -26,6 +26,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const sessionSecret = process.env.SESSION_SECRET;
+const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
 
 if (process.env.NODE_ENV === 'production' && !sessionSecret) {
   throw new Error('SESSION_SECRET must be set in production');
@@ -51,6 +52,20 @@ function resolveTrustProxy() {
 const trustProxy = resolveTrustProxy();
 if (trustProxy !== false) app.set('trust proxy', trustProxy);
 
+function buildCspHosts() {
+  const hosts = new Set(['https://us.i.posthog.com', 'https://eu.i.posthog.com']);
+  try {
+    if (POSTHOG_HOST) {
+      const u = new URL(POSTHOG_HOST);
+      hosts.add(`${u.protocol}//${u.host}`);
+    }
+  } catch (_) {
+    // ignore invalid POSTHOG_HOST; defaults above still apply
+  }
+  return Array.from(hosts);
+}
+const cspHosts = buildCspHosts();
+
 // ── Stripe webhook MUST be registered before express.json() consumes the body ──
 // Stripe signature verification requires the raw Buffer, not a parsed object.
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
@@ -60,10 +75,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'"],
+      scriptSrc:   ["'self'", ...cspHosts],
       styleSrc:    ["'self'", "'unsafe-inline'"],
-      imgSrc:      ["'self'", 'data:', '*.airbnb.com', 'a0.muscache.com'],
-      connectSrc:  ["'self'"],
+      imgSrc:      ["'self'", 'data:', '*.airbnb.com', 'a0.muscache.com', ...cspHosts],
+      connectSrc:  ["'self'", ...cspHosts],
       frameSrc:    ["'none'"],
       objectSrc:   ["'none'"],
       baseUri:     ["'self'"],
@@ -162,6 +177,17 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV 
+  });
+});
+
+// Public client-side config (safe values only)
+app.get('/api/public-config', (req, res) => {
+  res.json({
+    posthog: {
+      enabled: Boolean(process.env.POSTHOG_PUBLIC_KEY),
+      key: process.env.POSTHOG_PUBLIC_KEY || null,
+      host: POSTHOG_HOST,
+    },
   });
 });
 
