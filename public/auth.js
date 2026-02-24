@@ -11,6 +11,15 @@ function showMessage(msg, isError = false) {
 
 function validateEmail(v) { return typeof v === 'string' && v.includes('@') && v.indexOf(' ') === -1; }
 function validatePassword(v) { return typeof v === 'string' && v.length >= 8; }
+function getPasswordValidationIssues(v) {
+  const value = String(v || '');
+  const issues = [];
+  if (value.length < 8) issues.push('At least 8 characters');
+  if (!/[A-Z]/.test(value)) issues.push('At least one uppercase letter');
+  if (!/[a-z]/.test(value)) issues.push('At least one lowercase letter');
+  if (!/[0-9]/.test(value)) issues.push('At least one number');
+  return issues;
+}
 
 function isButtonLoading(button) {
   return !!button && button.dataset.loading === '1';
@@ -34,6 +43,12 @@ function setButtonLoading(button, isLoading, loadingText = 'Loading...') {
   if (button.dataset.originalText) {
     button.textContent = button.dataset.originalText;
   }
+}
+
+function setHelpText(el, message, isError = false) {
+  if (!el) return;
+  el.textContent = message;
+  el.className = isError ? 'field-error' : 'field-ok';
 }
 
 function switchToForm(formId) {
@@ -72,6 +87,30 @@ function switchToTab(tab) {
     registerCard.style.display = 'block';
     loginCard.style.display = 'none';
   }
+}
+
+function parseHashParams() {
+  const raw = (window.location.hash || '').replace(/^#/, '');
+  return new URLSearchParams(raw);
+}
+
+function getRecoveryContext() {
+  const search = new URLSearchParams(window.location.search);
+  const hash = parseHashParams();
+  const type = search.get('type') || hash.get('type') || '';
+  const legacyResetToken = search.get('reset_token');
+  const accessToken = hash.get('access_token') || search.get('access_token');
+  const hasRecoveryIntent = Boolean(
+    legacyResetToken ||
+    type === 'recovery' ||
+    (accessToken && type === 'recovery') ||
+    ((search.get('token') || hash.get('token')) && type === 'recovery')
+  );
+  const hasSignupConfirmIntent = Boolean(
+    type === 'signup' ||
+    (accessToken && type === 'signup')
+  );
+  return { hasRecoveryIntent, hasSignupConfirmIntent, type, legacyResetToken, accessToken };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -135,10 +174,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const registerEmailEl = $('#register-email');
   const registerPassEl  = $('#register-password');
   const btnRegister     = $('#btn-register');
+  const registerPasswordHelpEl = $('#register-password-help');
 
   const updateRegisterButton = () => {
+    const passIssues = getPasswordValidationIssues(registerPassEl.value || '');
+    if (registerPassEl?.value) {
+      if (passIssues.length) {
+        setHelpText(registerPasswordHelpEl, `Password requirements: ${passIssues.join(', ')}`, true);
+      } else {
+        setHelpText(registerPasswordHelpEl, 'Password looks good.', false);
+      }
+    } else {
+      setHelpText(registerPasswordHelpEl, 'At least 8 characters, include letters and numbers.', false);
+    }
+
     if (btnRegister && !isButtonLoading(btnRegister)) btnRegister.disabled =
-      !(validateEmail(registerEmailEl.value.trim()) && validatePassword(registerPassEl.value || ''));
+      !(validateEmail(registerEmailEl.value.trim()) && passIssues.length === 0);
   };
   registerEmailEl?.addEventListener('input', updateRegisterButton);
   registerPassEl?.addEventListener('input', updateRegisterButton);
@@ -167,7 +218,18 @@ document.addEventListener('DOMContentLoaded', () => {
         credentials: 'same-origin',
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) return showMessage(json.error || 'Registration failed', true);
+      if (!res.ok) {
+        const details = Array.isArray(json?.details) ? json.details : [];
+        const passwordError = details.find((d) => d?.field === 'password')?.message;
+        if (passwordError) setHelpText(registerPasswordHelpEl, passwordError, true);
+        return showMessage(json.error || 'Registration failed', true);
+      }
+      if (json.requires_email_confirmation) {
+        showMessage(json.message || 'Check your email to confirm your account.');
+        registerPassEl.value = '';
+        switchToTab('login');
+        return;
+      }
       showMessage('Registered — redirecting…');
       keepLoading = true;
       setTimeout(() => { window.location.href = '/'; }, 600);
@@ -222,11 +284,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const resetPassEl    = $('#reset-password');
   const resetConfirmEl = $('#reset-confirm');
   const btnReset       = $('#btn-reset-password');
+  const resetPasswordHelpEl = $('#reset-password-help');
+  const resetConfirmHelpEl = $('#reset-confirm-help');
 
   const updateResetButton = () => {
     const p = resetPassEl?.value || '';
+    const passIssues = getPasswordValidationIssues(p);
+    if (p) {
+      if (passIssues.length) {
+        setHelpText(resetPasswordHelpEl, `Password requirements: ${passIssues.join(', ')}`, true);
+      } else {
+        setHelpText(resetPasswordHelpEl, 'Password looks good.', false);
+      }
+    } else {
+      setHelpText(resetPasswordHelpEl, 'At least 8 characters, include letters and numbers.', false);
+    }
+
+    const matches = p === (resetConfirmEl?.value || '');
+    if (resetConfirmEl?.value && !matches) {
+      setHelpText(resetConfirmHelpEl, 'Passwords do not match.', true);
+    } else {
+      setHelpText(resetConfirmHelpEl, '', false);
+    }
+
     if (btnReset && !isButtonLoading(btnReset)) {
-      btnReset.disabled = !(validatePassword(p) && p === (resetConfirmEl?.value || ''));
+      btnReset.disabled = !(passIssues.length === 0 && matches);
     }
   };
   resetPassEl?.addEventListener('input', updateResetButton);
@@ -244,18 +326,26 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     if (isButtonLoading(btnReset)) return;
     setButtonLoading(btnReset, true, 'Resetting...');
-    const token = new URLSearchParams(window.location.search).get('reset_token');
-    if (!token) {
-      showMessage('Invalid reset link', true);
-      setButtonLoading(btnReset, false);
-      updateResetButton();
-      return;
-    }
+    const ctx = getRecoveryContext();
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      let endpoint = '/api/auth/reset-password';
+      let body = { token: ctx.legacyResetToken, newPassword: resetPassEl.value };
+
+      // Supabase recovery links usually provide access_token in URL hash.
+      if (!ctx.legacyResetToken && ctx.accessToken) {
+        endpoint = '/api/auth/reset-password-supabase';
+        body = { accessToken: ctx.accessToken, newPassword: resetPassEl.value };
+      }
+
+      if (!body.token && !body.accessToken) {
+        showMessage('Invalid reset link', true);
+        return;
+      }
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword: resetPassEl.value }),
+        body: JSON.stringify(body),
         credentials: 'same-origin',
       });
       const json = await res.json().catch(() => ({}));
@@ -273,9 +363,12 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-back-to-login-2')?.addEventListener('click', (e) => { e.preventDefault(); switchToForm('auth'); });
 
   // ── Init ───────────────────────────────────────────────────────────────────
-  const params = new URLSearchParams(window.location.search);
-  if (params.has('reset_token')) {
+  const recovery = getRecoveryContext();
+  if (recovery.hasRecoveryIntent) {
     switchToForm('reset-password');
+  } else if (recovery.hasSignupConfirmIntent) {
+    switchToTab('login');
+    showMessage('Email verified. You can now log in.');
   } else {
     switchToTab('login');
   }

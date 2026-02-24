@@ -702,16 +702,33 @@ async function loadNotifications() {
       const priceChange = (isPriceDrop && n.old_price && n.new_price)
         ? `<span style="color:#48bb78;margin-left:8px">&#x25bc; ${(n.old_price - n.new_price).toFixed(0)} (${Number(n.old_price).toFixed(0)} → ${Number(n.new_price).toFixed(0)})</span>`
         : '';
+      const listingName = n.listing_name || n.listing_id || 'Listing';
+      const listingUrl = n.listing_url || '';
+      const listingImage = n.listing_image_url || '';
+      const canOpenModal = !!(n.listing_id && /^\d+$/.test(String(n.listing_id)));
       return `
         <div class="alert-item">
-          <div>
-            <strong>${n.notification_type.replace('_', ' ')}</strong>
-            — ${n.listing_name || n.listing_id || ''}
-            ${priceChange}
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            ${listingImage ? `<img src="${listingImage}" alt="${listingName.replace(/"/g, '')}" loading="lazy" style="width:84px;height:64px;object-fit:cover;border-radius:8px;border:1px solid rgba(16,24,40,0.08)">` : ''}
+            <div style="flex:1;min-width:0">
+              <div>
+                <strong>${n.notification_type.replace('_', ' ')}</strong>
+                — ${listingName}
+                ${priceChange}
+              </div>
+              <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+                ${canOpenModal ? `<button class="secondary btn-view-listing" data-listing-id="${n.listing_id}">View Listing</button>` : ''}
+                ${listingUrl ? `<a href="${listingUrl}" target="_blank" rel="noopener noreferrer"><button class="secondary" type="button">Open Airbnb</button></a>` : ''}
+              </div>
+            </div>
           </div>
           <div style="color:var(--muted)">${new Date(n.sent_at).toLocaleString()}</div>
         </div>`;
     }).join('');
+
+    document.querySelectorAll('.btn-view-listing').forEach((btn) => {
+      btn.onclick = (e) => showListingModal(e.currentTarget.dataset.listingId);
+    });
   } catch (err) {
     console.error(err);
   }

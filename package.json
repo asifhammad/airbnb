@@ -14,7 +14,9 @@
     "migrate:to-supabase:verify": "node src/db/migrate-to-supabase.js --skip-verification=false",
     "migrate:specific": "node src/db/migrate-to-supabase.js",
     "auth:backfill-supabase": "node src/db/backfill-supabase-auth-users.js",
-    "setup:replication": "node src/db/setup-replication.js",
+    "setup:replication": "node src/db/setup-replication.js --mode=setup",
+    "setup:replication:verify": "node src/db/setup-replication.js --mode=verify",
+    "setup:replication:refresh": "node src/db/setup-replication.js --mode=refresh",
     "db:health": "node -e \"import('./src/db/health-check.js').then(m => { const hc = m.healthCheck; hc.check().then(s => console.log(hc.formatStatus(s))); })\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

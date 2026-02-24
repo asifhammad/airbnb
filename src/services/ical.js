@@ -32,7 +32,8 @@ export async function fetchICalData(listingId) {
 
     return blockedRanges;
   } catch (error) {
-    console.error(`Error fetching iCal for listing ${listingId}:`, error.message);
+    const status = error?.response?.status ? ` status=${error.response.status}` : '';
+    console.warn(`iCal fetch failed for listing ${listingId}:${status} ${error.message}`);
     throw error;
   }
 }
@@ -68,7 +69,8 @@ export async function checkICalAvailability(listingId, checkIn, checkOut) {
 
     return true; // Dates are available
   } catch (error) {
-    console.error('Error checking iCal availability:', error);
+    const status = error?.response?.status ? ` status=${error.response.status}` : '';
+    console.warn(`iCal availability check failed for listing ${listingId}:${status} ${error.message}`);
     throw error;
   }
 }
@@ -114,7 +116,8 @@ export async function getAvailableDateRanges(listingId, months = 3) {
 
     return availableRanges;
   } catch (error) {
-    console.error('Error getting available date ranges:', error);
+    const status = error?.response?.status ? ` status=${error.response.status}` : '';
+    console.warn(`iCal available ranges failed for listing ${listingId}:${status} ${error.message}`);
     throw error;
   }
 }

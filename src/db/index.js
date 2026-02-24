@@ -26,40 +26,33 @@ function makePool(connectionString, label) {
 }
 
 // Primary: Supabase (DATABASE_URL)
-// Replica: Railway (DATABASE_REPLICA_URL) — used as read-only fallback
+// Replica: Railway (DATABASE_REPLICA_URL) — optional read-only pool
 const primaryPool  = makePool(process.env.DATABASE_URL, 'primary');
 const replicaPool  = process.env.DATABASE_REPLICA_URL
   ? makePool(process.env.DATABASE_REPLICA_URL, 'replica')
   : null;
 
 if (replicaPool) {
-  console.log('🔁 Replica pool configured (Railway fallback)');
+  console.log('🔁 Replica pool configured (read-only)');
 }
 
-// Active write pool — always primary. Swapped to replica only if primary is down.
-let activePool = primaryPool;
-let usingReplica = false;
+let primaryHealthy = false;
 
-// Probe primary on startup and every 60 s; if it's gone switch to replica.
-// If primary comes back, switch back automatically.
+// Probe primary on startup and every 60 s.
 async function probePrimary() {
   try {
     const client = await primaryPool.connect();
     await client.query('SELECT 1');
     client.release();
-    if (usingReplica) {
-      console.log('✅ Primary (Supabase) recovered — switching back from replica');
-      activePool   = primaryPool;
-      usingReplica = false;
+    if (!primaryHealthy) {
+      console.log('✅ Primary (Supabase) is reachable');
     }
+    primaryHealthy = true;
   } catch (err) {
-    if (!usingReplica && replicaPool) {
-      console.error('⚠️  Primary (Supabase) unreachable — failing over to Railway replica:', err.message);
-      activePool   = replicaPool;
-      usingReplica = true;
-    } else if (!replicaPool) {
-      console.error('❌ Primary unreachable and no replica configured:', err.message);
+    if (primaryHealthy) {
+      console.error('❌ Primary (Supabase) became unreachable:', err.message);
     }
+    primaryHealthy = false;
   }
 }
 
@@ -69,15 +62,6 @@ function startProbing() {
   if (_probeInterval) return;
   _probeInterval = setInterval(probePrimary, 60_000);
 }
-
-// pool used by all query() calls — tracks the active pool
-const pool = new Proxy({}, {
-  get(_, prop) {
-    return typeof activePool[prop] === 'function'
-      ? activePool[prop].bind(activePool)
-      : activePool[prop];
-  }
-});
 
 /**
  * Wait for the database to accept connections, retrying up to `maxRetries` times
@@ -92,27 +76,11 @@ export async function waitForDb(maxRetries = 10, initialDelayMs = 1000) {
       await client.query('SELECT 1');
       client.release();
       console.log('✅ Primary database (Supabase) connected');
-      activePool   = primaryPool;
-      usingReplica = false;
+      primaryHealthy = true;
       startProbing();
       return;
     } catch (err) {
       if (attempt === maxRetries) {
-        // Primary exhausted — try replica before giving up
-        if (replicaPool) {
-          try {
-            const rc = await replicaPool.connect();
-            await rc.query('SELECT 1');
-            rc.release();
-            console.warn('⚠️  Primary unavailable — starting on Railway replica');
-            activePool   = replicaPool;
-            usingReplica = true;
-            startProbing(); // keep checking for primary recovery
-            return;
-          } catch (replicaErr) {
-            throw new Error(`Both primary and replica unreachable. Primary: ${err.message}. Replica: ${replicaErr.message}`);
-          }
-        }
         throw new Error(`Could not connect to database after ${maxRetries} attempts: ${err.message}`);
       }
       console.warn(`⏳ Primary not ready (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms…`);
@@ -122,9 +90,24 @@ export async function waitForDb(maxRetries = 10, initialDelayMs = 1000) {
   }
 }
 
-export const query     = (text, params) => pool.query(text, params);
-export const getClient = () => pool.connect();
-export const dbStatus  = () => ({ usingReplica, primary: 'Supabase', replica: replicaPool ? 'Railway' : null });
+// All application queries go to primary to avoid split-brain writes/data drift.
+export const query = (text, params) => primaryPool.query(text, params);
+export const getClient = () => primaryPool.connect();
+
+// Optional explicit replica read helper (not used by default).
+export const queryReplica = (text, params) => {
+  if (!replicaPool) {
+    throw new Error('Replica pool is not configured');
+  }
+  return replicaPool.query(text, params);
+};
+
+export const dbStatus = () => ({
+  usingReplica: false,
+  primary: 'Supabase',
+  primaryHealthy,
+  replica: replicaPool ? 'Railway' : null,
+});
 
 // Helper to run migrations on a specific pool
 async function runMigrationsOnPool(targetPool, label) {
@@ -232,4 +215,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     });
 }
 
-export default pool;
+export default primaryPool;

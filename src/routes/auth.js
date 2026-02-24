@@ -128,25 +128,43 @@ async function findSupabaseUserIdByEmail(email) {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return null;
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(normalizedEmail)}`, {
+  const headers = {
+    apikey: SUPABASE_SECRET_KEY,
+    Authorization: `Bearer ${SUPABASE_SECRET_KEY}`,
+  };
+
+  // Preferred path: direct email filter (supported on newer GoTrue versions).
+  const filteredRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(normalizedEmail)}`, {
     method: 'GET',
-    headers: {
-      apikey: SUPABASE_SECRET_KEY,
-      Authorization: `Bearer ${SUPABASE_SECRET_KEY}`,
-    },
+    headers,
   });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) return null;
-
-  if (Array.isArray(payload?.users) && payload.users.length > 0) {
-    const exact = payload.users.find((u) => normalizeEmail(u?.email) === normalizedEmail);
-    return exact?.id || null;
+  const filteredPayload = await filteredRes.json().catch(() => ({}));
+  if (filteredRes.ok && Array.isArray(filteredPayload?.users)) {
+    const exact = filteredPayload.users.find((u) => normalizeEmail(u?.email) === normalizedEmail);
+    if (exact?.id) return exact.id;
   }
 
-  // Defensive fallback for alternate payload shapes
-  if (payload?.user && normalizeEmail(payload.user.email) === normalizedEmail) {
-    return payload.user.id || null;
+  // Fallback: paginate user list in case the deployment ignores the `email` query param.
+  let page = 1;
+  const perPage = 200;
+  const maxPages = 10; // Bound requests to avoid expensive scans.
+  while (page <= maxPages) {
+    const pageRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=${perPage}`, {
+      method: 'GET',
+      headers,
+    });
+    const pagePayload = await pageRes.json().catch(() => ({}));
+    if (!pageRes.ok) break;
+    const users = Array.isArray(pagePayload?.users) ? pagePayload.users : [];
+    const exact = users.find((u) => normalizeEmail(u?.email) === normalizedEmail);
+    if (exact?.id) return exact.id;
+    if (users.length < perPage) break;
+    page += 1;
+  }
+
+  // Alternate payload shape fallback
+  if (filteredPayload?.user && normalizeEmail(filteredPayload.user.email) === normalizedEmail) {
+    return filteredPayload.user.id || null;
   }
 
   return null;
@@ -347,13 +365,16 @@ router.post('/register', registerLimiter, registerValidationRules, handleValidat
     let supabaseSignup;
     try {
       // Triggers Dreamlit workflow: supabase.auth.signUp()
-      supabaseSignup = await supabaseAuthRequest('/auth/v1/signup', {
+      const signupRedirectTo = `${FRONTEND_BASE_URL}/auth`;
+      const signupPath = `/auth/v1/signup?redirect_to=${encodeURIComponent(signupRedirectTo)}`;
+      supabaseSignup = await supabaseAuthRequest(signupPath, {
         method: 'POST',
         body: {
           email,
           password,
+          redirect_to: signupRedirectTo,
           options: {
-            emailRedirectTo: `${FRONTEND_BASE_URL}/auth`,
+            emailRedirectTo: signupRedirectTo,
           },
         },
       });
@@ -419,6 +440,19 @@ router.post('/register', registerLimiter, registerValidationRules, handleValidat
     await auditAction(req, 'REGISTER', 'user', user.id, {
       email: user.email
     }).catch(() => {}); // Silently fail audit logging
+
+    // If email confirmation is enabled, Supabase returns no session on sign up.
+    // In that case, do not create local auth session yet.
+    const hasSupabaseSession = Boolean(
+      supabaseSignup?.session ||
+      supabaseSignup?.access_token
+    );
+    if (!hasSupabaseSession) {
+      return res.status(202).json({
+        message: 'Please check your email and confirm your account before logging in.',
+        requires_email_confirmation: true
+      });
+    }
 
     res.cookie(ACCESS_COOKIE,  tokens.accessToken,  cookieOpts(ACCESS_MAX_AGE));
     res.cookie(REFRESH_COOKIE, tokens.refreshToken, cookieOpts(REFRESH_MAX_AGE));
@@ -639,9 +673,15 @@ router.get('/me', authenticateToken, async (req, res) => {
 const forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,                   // 3 requests per hour
-  message: 'Too many password reset requests. Try again later.',
+  message: { error: 'Too many password reset requests. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res, next, options) => {
+    const payload = typeof options.message === 'object'
+      ? options.message
+      : { error: String(options.message || 'Too many password reset requests. Try again later.') };
+    res.status(options.statusCode).json(payload);
+  },
 });
 
 const forgotPasswordValidation = [
@@ -659,12 +699,12 @@ router.post('/forgot-password', forgotPasswordLimiter, forgotPasswordValidation,
 
     // Explicit validation requested by product: only send reset for existing accounts.
     const localUserResult = await query(
-      'SELECT id FROM users WHERE email = $1 LIMIT 1',
+      'SELECT id, supabase_user_id FROM users WHERE email = $1 LIMIT 1',
       [email]
     );
     const localUserId = localUserResult.rows[0]?.id || null;
-
-    const supabaseUserId = await findSupabaseUserIdByEmail(email);
+    const localSupabaseUserId = localUserResult.rows[0]?.supabase_user_id || null;
+    const supabaseUserId = localSupabaseUserId || await findSupabaseUserIdByEmail(email);
 
     // Reset email comes from Supabase Auth user records, so require auth-user existence.
     if (!supabaseUserId) {
@@ -672,13 +712,13 @@ router.post('/forgot-password', forgotPasswordLimiter, forgotPasswordValidation,
     }
 
     // Triggers Dreamlit workflow: supabase.auth.resetPasswordForEmail()
-    await supabaseAuthRequest('/auth/v1/recover', {
+    const forgotRedirectTo = `${FRONTEND_BASE_URL}/auth`;
+    const recoverPath = `/auth/v1/recover?redirect_to=${encodeURIComponent(forgotRedirectTo)}`;
+    await supabaseAuthRequest(recoverPath, {
       method: 'POST',
       body: {
         email,
-        options: {
-          redirectTo: `${FRONTEND_BASE_URL}/auth`,
-        },
+        redirect_to: forgotRedirectTo,
       },
     }).catch((err) => {
       // Keep response generic for provider errors while preserving account validation above.
@@ -722,6 +762,21 @@ const resetPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+const supabaseResetPasswordValidation = [
+  body('accessToken')
+    .notEmpty()
+    .withMessage('Recovery access token is required'),
+  body('newPassword')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long')
+    .matches(/[A-Z]/)
+    .withMessage('Password must contain at least one uppercase letter')
+    .matches(/[a-z]/)
+    .withMessage('Password must contain at least one lowercase letter')
+    .matches(/[0-9]/)
+    .withMessage('Password must contain at least one number'),
+];
 
 router.post('/reset-password', resetPasswordLimiter, resetPasswordValidation, handleValidationErrors, async (req, res) => {
   try {
@@ -811,6 +866,38 @@ router.post('/reset-password', resetPasswordLimiter, resetPasswordValidation, ha
     }).catch(() => {}); // Silently fail audit logging
 
     res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// Reset password using Supabase recovery access token (from /auth#access_token=...&type=recovery)
+router.post('/reset-password-supabase', resetPasswordLimiter, supabaseResetPasswordValidation, handleValidationErrors, async (req, res) => {
+  try {
+    const { accessToken, newPassword } = req.body;
+    if (!requireSupabaseConfig(res)) return;
+
+    const updated = await supabaseAuthRequest('/auth/v1/user', {
+      method: 'PUT',
+      userAccessToken: accessToken,
+      body: { password: newPassword },
+    });
+
+    const email = normalizeEmail(updated?.email || updated?.user?.email);
+    if (email) {
+      await query(
+        `UPDATE users
+         SET password_hash = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE email = $1`,
+        [email]
+      ).catch(() => {});
+    }
+
+    res.json({
+      message: 'Password reset successfully. You can now log in with your new password.'
+    });
+  } catch (error) {
+    logger.error('Supabase reset-password error:', error);
+    res.status(400).json({ error: 'Invalid or expired password reset link' });
   }
 });
 

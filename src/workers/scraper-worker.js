@@ -4,6 +4,16 @@ import { searchAirbnb } from './python-executor.js';
 import { checkICalAvailability } from '../services/ical.js';
 import logger from '../utils/logger.js';
 
+const PREMIUM_NOTIFICATION_COOLDOWN_MINUTES = Math.max(
+  0,
+  Number.parseInt(process.env.PREMIUM_NOTIFICATION_COOLDOWN_MINUTES || '60', 10) || 60
+);
+const PREMIUM_MAX_EMAILS_PER_24H = Math.max(
+  1,
+  Number.parseInt(process.env.PREMIUM_MAX_EMAILS_PER_24H || '3', 10) || 3
+);
+const BASIC_NOTIFICATION_COOLDOWN_HOURS = 24;
+
 // ─── Price extraction ────────────────────────────────────────────────────────
 // The pyairbnb price object looks like:
 // { unit: { qualifier: 'for 7 nights', amount: 418, discount: 367 }, ... }
@@ -30,6 +40,17 @@ function extractPrice(price) {
 function listingUrl(listing) {
   if (listing.url) return listing.url;
   if (listing.id)  return `https://www.airbnb.com/rooms/${listing.id}`;
+  return null;
+}
+
+function listingCoverImage(listing) {
+  const photos = listing?.photos;
+  if (Array.isArray(photos) && photos.length > 0) {
+    return photos[0]?.url || photos[0] || null;
+  }
+  if (listing?.picture_url) return listing.picture_url;
+  if (listing?.image_url) return listing.image_url;
+  if (listing?.thumbnail_url) return listing.thumbnail_url;
   return null;
 }
 
@@ -161,6 +182,8 @@ export async function runSearchAlert(alertId, opts = {}) {
       return [r.listing_id, Number.isFinite(parsed) ? parsed : null];
     })
   );
+  const isBootstrapRun = knownListings.size === 0;
+  let bootstrapNewCount = 0;
 
   // ── Process each listing returned by the scraper ───────────────────────────
   const newListings       = [];
@@ -247,7 +270,11 @@ export async function runSearchAlert(alertId, opts = {}) {
       }
 
       await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
-      newListings.push({ ...listing, price, url });
+      if (isBootstrapRun) {
+        bootstrapNewCount += 1;
+      } else {
+        newListings.push({ ...listing, price, url });
+      }
 
     } else {
       // ── EXISTING LISTING — check for price drop or freed-up ────────────
@@ -314,7 +341,13 @@ export async function runSearchAlert(alertId, opts = {}) {
     [alertId]
   );
 
-  // ── Send emails ────────────────────────────────────────────────────────────
+  if (isBootstrapRun && bootstrapNewCount > 0) {
+    logger.info(
+      `Alert ${alertId} bootstrap baseline created (${bootstrapNewCount} listings); notifications suppressed on first run`
+    );
+  }
+
+  // ── Queue email notifications ──────────────────────────────────────────────
   const userResult = await dbQuery(
     `SELECT u.subscription_tier FROM users u
      JOIN search_alerts sa ON sa.user_id = u.id
@@ -324,34 +357,65 @@ export async function runSearchAlert(alertId, opts = {}) {
   const subscriptionTier = userResult.rows[0]?.subscription_tier;
 
   if (subscriptionTier) {
-    // Premium tier: email for all detected changes as they happen.
-    // Basic tier: email for all changes but max 1 email per 24 hours.
-    if (subscriptionTier === 'premium') {
-      // Premium: queue all change types as they happen
-      await sendAlerts(dbQuery, alert, alertId, newListings,       'new',         'new_listing');
-      await sendAlerts(dbQuery, alert, alertId, priceDropListings, 'price_drop',  'price_drop');
-      await sendAlerts(dbQuery, alert, alertId, freedUpListings,   'availability','availability_change');
-    } else {
-      // Basic: queue all changes, but max 1 queued email bundle per 24 hours
+    const hasChanges = newListings.length > 0 || priceDropListings.length > 0 || freedUpListings.length > 0;
+    if (hasChanges) {
       const lastEmailCheck = await dbQuery(
         `SELECT last_notified FROM search_alerts WHERE id = $1`,
         [alertId]
       );
-      
       const lastNotified = lastEmailCheck.rows[0]?.last_notified;
-      const hasEmailedRecently = lastNotified && (new Date() - new Date(lastNotified)) < 24 * 60 * 60 * 1000;
-      
-      if (!hasEmailedRecently) {
-        // Queue notifications only if we haven't queued one in the last 24 hours
-        const hasChanges = newListings.length > 0 || priceDropListings.length > 0 || freedUpListings.length > 0;
-        
-        if (hasChanges) {
-          await sendAlerts(dbQuery, alert, alertId, newListings,       'new',         'new_listing');
-          await sendAlerts(dbQuery, alert, alertId, priceDropListings, 'price_drop',  'price_drop');
-          await sendAlerts(dbQuery, alert, alertId, freedUpListings,   'availability','availability_change');
-        }
+      const msSinceLastNotified = lastNotified ? (new Date() - new Date(lastNotified)) : Number.POSITIVE_INFINITY;
+
+      const isPremium = subscriptionTier === 'premium';
+      const cooldownMs = isPremium
+        ? PREMIUM_NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000
+        : BASIC_NOTIFICATION_COOLDOWN_HOURS * 60 * 60 * 1000;
+      const hasQueuedRecently = msSinceLastNotified < cooldownMs;
+
+      if (hasQueuedRecently) {
+        logger.info(
+          `Alert ${alertId} (${subscriptionTier} tier): skipping queue — already queued within last ${isPremium ? PREMIUM_NOTIFICATION_COOLDOWN_MINUTES + ' minutes' : '24 hours'}`
+        );
       } else {
-        logger.info(`Alert ${alertId} (basic tier): skipping queue — already queued within last 24 hours`);
+        let remainingQuota = 1; // basic/free hard cap
+        if (isPremium) {
+          const sentCountRes = await dbQuery(
+            `SELECT COUNT(*)::int AS sent_count
+             FROM notifications
+             WHERE search_alert_id = $1
+               AND sent_at > NOW() - INTERVAL '24 hours'`,
+            [alertId]
+          );
+          const sentCount24h = Number(sentCountRes.rows[0]?.sent_count || 0);
+          remainingQuota = Math.max(0, PREMIUM_MAX_EMAILS_PER_24H - sentCount24h);
+        }
+
+        if (remainingQuota <= 0) {
+          logger.info(
+            `Alert ${alertId} (${subscriptionTier} tier): skipping queue — reached quota in last 24 hours`
+          );
+        } else {
+          // Priority: price drop > availability > new listing.
+          const prioritizedBatches = [
+            { listings: priceDropListings, emailType: 'price_drop',   notifType: 'price_drop' },
+            { listings: freedUpListings,   emailType: 'availability', notifType: 'availability_change' },
+            { listings: newListings,       emailType: 'new',          notifType: 'new_listing' },
+          ];
+
+          let queuedTotal = 0;
+          for (const batch of prioritizedBatches) {
+            if (remainingQuota <= 0) break;
+            if (!batch.listings.length) continue;
+            const toQueue = batch.listings.slice(0, remainingQuota);
+            const queued = await sendAlerts(dbQuery, alert, alertId, toQueue, batch.emailType, batch.notifType);
+            queuedTotal += queued;
+            remainingQuota -= queued;
+          }
+
+          logger.info(
+            `Alert ${alertId} (${subscriptionTier} tier): queued ${queuedTotal} notification(s) this run`
+          );
+        }
       }
     }
   }
@@ -387,15 +451,17 @@ async function upsertSearchResult(dbQuery, alertId, listingId, changeType, oldPr
 }
 
 async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifType) {
-  if (!listings.length) return;
+  if (!listings.length) return 0;
   // Queue notification rows for Dreamlit to send; email_sent=false means pending.
+  let queuedCount = 0;
   for (const l of listings) {
     const payload = {
       email_type: emailType,
       listing: {
         id: l.id ?? null,
         name: l.name ?? null,
-        url: l.url ?? null,
+        url: l.url ?? listingUrl(l),
+        image_url: listingCoverImage(l),
         address: l.address ?? null,
         rating: l.rating ?? null,
       },
@@ -416,17 +482,21 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
     await dbQuery(
       `INSERT INTO notifications
          (user_id, search_alert_id, listing_id, notification_type, email_sent, payload)
-       SELECT user_id, $1::int, $2::text, $3::text, false, $4::jsonb FROM search_alerts WHERE id = $1::int`,
-      [alertId, l.id, notifType, JSON.stringify(payload)]
+       VALUES ($1::int, $2::int, $3::text, $4::text, false, $5::jsonb)`,
+      [alert.user_id, alertId, l.id, notifType, JSON.stringify(payload)]
+    );
+    queuedCount += 1;
+  }
+  if (queuedCount > 0) {
+    await dbQuery(
+      `UPDATE search_alerts SET
+         last_notified      = CURRENT_TIMESTAMP,
+         notification_count = notification_count + $2
+       WHERE id = $1`,
+      [alertId, queuedCount]
     );
   }
-  await dbQuery(
-    `UPDATE search_alerts SET
-       last_notified      = CURRENT_TIMESTAMP,
-       notification_count = notification_count + $2
-     WHERE id = $1`,
-    [alertId, listings.length]
-  );
+  return queuedCount;
 }
 
 // ─── Wire up queue ────────────────────────────────────────────────────────────
@@ -466,12 +536,27 @@ function registerQueueProcessors() {
     );
 
     if (alreadyNotified.rows.length === 0) {
+      let availabilityImageUrl = null;
+      try {
+        const listingRow = await query(
+          `SELECT photos FROM listings WHERE listing_id = $1 LIMIT 1`,
+          [alert.listing_id]
+        );
+        const photos = listingRow.rows[0]?.photos;
+        if (Array.isArray(photos) && photos.length > 0) {
+          availabilityImageUrl = photos[0]?.url || photos[0] || null;
+        }
+      } catch (err) {
+        logger.warn(`Failed to load listing image for availability alert ${alertId}: ${err.message}`);
+      }
+
       const payload = {
         email_type: 'availability',
         listing: {
           id: alert.listing_id ?? null,
           name: 'Your tracked listing is now available!',
           url: alert.listing_url ?? null,
+          image_url: availabilityImageUrl,
         },
         alert: {
           check_in: alert.check_in ?? null,

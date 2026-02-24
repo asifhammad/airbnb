@@ -125,7 +125,17 @@ router.get('/alert/:alertId/listing/:listingId/price-history', authenticateToken
 router.get('/notifications/recent', authenticateToken, async (req, res) => {
   try {
     const result = await query(
-      `SELECT n.*, l.name as listing_name, l.url as listing_url,
+      `SELECT n.*,
+              COALESCE(
+                n.payload->'listing'->>'image_url',
+                CASE
+                  WHEN jsonb_typeof(l.photos) = 'array' AND jsonb_array_length(l.photos) > 0
+                    THEN COALESCE(l.photos->0->>'url', l.photos->>0)
+                  ELSE NULL
+                END
+              ) as listing_image_url,
+              COALESCE(n.payload->'listing'->>'url', l.url) as listing_url,
+              COALESCE(n.payload->'listing'->>'name', l.name, n.listing_id) as listing_name,
               sa.location, sa.check_in, sa.check_out,
               COALESCE(sr.old_price, NULLIF(n.payload->'prices'->>'old_price', '')::numeric) AS old_price,
               COALESCE(sr.new_price, NULLIF(n.payload->'prices'->>'new_price', '')::numeric) AS new_price
