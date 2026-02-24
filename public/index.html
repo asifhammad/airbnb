@@ -3,13 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Airbnb Alerts</title>
+    <title>Alert Buzz</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="container">
       <header>
-        <h1>Airbnb Alerts</h1>
+        <div style="display:flex;align-items:center;gap:12px">
+          <img src="/logo.png" alt="Alert Buzz Logo" style="width:40px;height:40px;border-radius:8px" />
+          <h1 style="margin:0">Alert Buzz</h1>
+        </div>
         <div id="auth-area">
           <div class="user-menu">
             <button id="user-menu-btn" class="user-menu-btn">
@@ -18,8 +21,8 @@
               <span class="dropdown-arrow">▼</span>
             </button>
             <div id="user-dropdown" class="user-dropdown hidden">
-              <a href="/settings.html" class="dropdown-item">Settings</a>
-              <a href="/billing.html" class="dropdown-item">Plan</a>
+              <a href="/settings" class="dropdown-item">Settings</a>
+              <a href="/billing" class="dropdown-item">Plan</a>
               <div class="dropdown-divider"></div>
               <button id="btn-logout" class="dropdown-item logout-btn">Logout</button>
             </div>
@@ -60,6 +63,22 @@
 
             <!-- (Specific listing tracking removed — only URL-based search alerts are supported in the UI) -->
 
+          </div>
+        </section>
+
+        <!-- ── Billing summary (for paying customers) ───────────────────────────── -->
+        <section class="card hidden" id="billing-summary-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <h2 style="margin:0">Your Plan</h2>
+            <div style="display:flex;gap:8px">
+              <button id="btn-manage-billing-dashboard" class="secondary" style="font-size:13px;padding:6px 10px">Manage Billing</button>
+              <a href="/billing" class="secondary" style="font-size:13px;padding:6px 10px;text-decoration:none;display:inline-block">View Details</a>
+            </div>
+          </div>
+          
+          <div id="billing-summary-content" style="display:flex;flex-direction:column;gap:12px">
+            <!-- Content will be populated by JavaScript -->
+            <div style="color:var(--muted)">Loading plan information…</div>
           </div>
         </section>
 
@@ -170,7 +189,7 @@
       </main>
 
       <footer>
-        <small style="color:var(--muted)">Airbnb Alerts</small>
+        <small style="color:var(--muted)">Alert Buzz</small>
       </footer>
     </div>
 

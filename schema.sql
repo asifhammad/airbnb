@@ -147,6 +147,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(255);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_end TIMESTAMP;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_user_id UUID;
 
+-- Migrate subscription columns to correct types (if previously CHAR(1))
+ALTER TABLE users ALTER COLUMN subscription_tier TYPE VARCHAR(20);
+ALTER TABLE users ALTER COLUMN subscription_status TYPE VARCHAR(20);
+
 ALTER TABLE search_alerts ADD COLUMN IF NOT EXISTS search_url TEXT;
 ALTER TABLE search_alerts ADD COLUMN IF NOT EXISTS url_params JSONB;
 ALTER TABLE search_alerts ADD COLUMN IF NOT EXISTS instant_book BOOLEAN DEFAULT FALSE;
@@ -176,11 +180,8 @@ CREATE TABLE IF NOT EXISTS notifications (
   notification_type VARCHAR(20) CHECK (notification_type IN ('new_listing', 'availability_change', 'price_drop')),
   sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   email_sent BOOLEAN DEFAULT FALSE,
-  email_error TEXT,
-  payload JSONB
+  email_error TEXT
 );
-
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS payload JSONB;
 
 -- Audit logs for tracking sensitive operations
 CREATE TABLE IF NOT EXISTS audit_logs (

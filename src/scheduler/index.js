@@ -7,6 +7,20 @@ import logger from '../utils/logger.js';
  * Schedule periodic scraping jobs based on subscription tiers
  */
 export function startScheduler() {
+  async function enqueueAlert(alert, priority) {
+    try {
+      if (alert.alert_type === 'search') {
+        await addSearchJob(alert.id, priority);
+      } else if (alert.alert_type === 'listing') {
+        await addListingJob(alert.id, priority);
+      }
+      return true;
+    } catch (err) {
+      logger.warn(`Failed to queue alert ${alert.id} (${priority}): ${err.message}`);
+      return false;
+    }
+  }
+
   // Check basic tier alerts (once per day at 9 AM)
   cron.schedule('0 9 * * *', async () => {
     logger.info('Running daily basic tier scraping...');
@@ -23,22 +37,19 @@ export function startScheduler() {
          )`
       );
 
+      let queued = 0;
       for (const alert of result.rows) {
-        if (alert.alert_type === 'search') {
-          await addSearchJob(alert.id, 'normal');
-        } else if (alert.alert_type === 'listing') {
-          await addListingJob(alert.id, 'normal');
-        }
+        if (await enqueueAlert(alert, 'normal')) queued += 1;
       }
 
-      logger.info(`Queued ${result.rows.length} basic tier and free trial alerts`);
+      logger.info(`Queued ${queued}/${result.rows.length} basic tier and free trial alerts`);
     } catch (error) {
       logger.error('Basic tier scheduling error:', error);
     }
   });
 
-  // Check premium tier alerts (every 15 minutes)
-  cron.schedule('*/15 * * * *', async () => {
+  // Check premium tier alerts (every 1 hour)
+  cron.schedule('0 * * * *', async () => {
     logger.info('Running premium tier scraping...');
     
     try {
@@ -51,15 +62,12 @@ export function startScheduler() {
          AND u.subscription_status = 'active'`
       );
 
+      let queued = 0;
       for (const alert of result.rows) {
-        if (alert.alert_type === 'search') {
-          await addSearchJob(alert.id, 'high');
-        } else if (alert.alert_type === 'listing') {
-          await addListingJob(alert.id, 'high');
-        }
+        if (await enqueueAlert(alert, 'high')) queued += 1;
       }
 
-      logger.info(`Queued ${result.rows.length} premium tier alerts`);
+      logger.info(`Queued ${queued}/${result.rows.length} premium tier alerts`);
     } catch (error) {
       logger.error('Premium tier scheduling error:', error);
     }
@@ -97,6 +105,21 @@ export function startScheduler() {
     }
   });
 
+  // Clean up old price history (weekly on Sunday at 2:30 AM)
+  // Keep only 90 days — enough to show meaningful trends without unbounded growth
+  cron.schedule('30 2 * * 0', async () => {
+    logger.info('Cleaning up old price history...');
+    try {
+      const result = await query(
+        `DELETE FROM listing_price_history
+         WHERE recorded_at < NOW() - INTERVAL '90 days'`
+      );
+      logger.info(`Cleaned up ${result.rowCount} old price history rows`);
+    } catch (error) {
+      logger.error('Price history cleanup error:', error);
+    }
+  });
+
   // Deactivate expired free trial alerts (every hour)
   cron.schedule('0 * * * *', async () => {
     logger.info('Checking for expired free trial alerts...');
@@ -121,7 +144,7 @@ export function startScheduler() {
 
   logger.info('✅ Scheduler started');
   logger.info('📅 Basic tier: Daily at 9 AM');
-  logger.info('📅 Premium tier: Every 15 minutes');
+  logger.info('📅 Premium tier: Every hour');
   logger.info('🧹 Cleanup: Daily at 3 AM, weekly on Sunday at 2 AM');
 }
 

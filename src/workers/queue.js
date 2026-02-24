@@ -1,10 +1,32 @@
 import Queue from 'bull';
 import dotenv from 'dotenv';
+import Redis from 'ioredis';
 
 dotenv.config();
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+let lastQueueErrorLogAt = 0;
+
+function redisTargetLabel(url) {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.hostname}:${u.port || (u.protocol === 'rediss:' ? '6379' : '6379')}`;
+  } catch {
+    return 'invalid-redis-url';
+  }
+}
+
+function createRedisClient() {
+  return new Redis(redisUrl, {
+    // Avoid hard-failing commands at the default 20 retries during transient Redis issues.
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+}
+
 // Create queue
-export const scrapeQueue = new Queue('airbnb-scrape', process.env.REDIS_URL || 'redis://localhost:6379', {
+export const scrapeQueue = new Queue('airbnb-scrape', redisUrl, {
+  createClient: () => createRedisClient(),
   defaultJobOptions: {
     removeOnComplete: 100, // Keep last 100 completed jobs
     removeOnFail: 200,     // Keep last 200 failed jobs
@@ -49,6 +71,17 @@ scrapeQueue.on('failed', (job, err) => {
 
 scrapeQueue.on('stalled', (job) => {
   console.warn(`⚠️  Job ${job.id} stalled`);
+});
+
+scrapeQueue.on('error', (err) => {
+  const now = Date.now();
+  // Avoid flooding logs on reconnect loops; keep one detailed line every 10s.
+  if (now - lastQueueErrorLogAt < 10_000) return;
+  lastQueueErrorLogAt = now;
+  const code = err?.code ? ` code=${err.code}` : '';
+  const name = err?.name ? ` name=${err.name}` : '';
+  const msg = err?.message || 'unknown error';
+  console.error(`❌ Queue connection error to ${redisTargetLabel(redisUrl)}:${code}${name} ${msg}`);
 });
 
 export default scrapeQueue;

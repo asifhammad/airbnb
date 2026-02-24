@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — Alert Buzz</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* ── Admin-specific styles ── */
+    .admin-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px; gap: 16px; flex-wrap: wrap;
+    }
+    .admin-header h1 { margin: 0; font-size: 20px; }
+
+    /* Secret input row */
+    #secret-bar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      background: var(--muted-bg); padding: 12px 16px;
+      border-radius: 10px; border: 1px solid rgba(16,24,40,0.06);
+      margin-bottom: 20px;
+    }
+    #secret-bar label { font-size: 13px; color: var(--muted); white-space: nowrap; }
+    #admin-secret-input {
+      flex: 1; min-width: 200px; font-family: monospace; font-size: 13px;
+    }
+
+    /* Stat cards */
+    .stat-grid {
+      display: grid; gap: 12px; margin-bottom: 20px;
+      grid-template-columns: repeat(2, 1fr);
+    }
+    @media (min-width: 640px)  { .stat-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (min-width: 900px)  { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+    .stat-card {
+      background: var(--muted-bg); border: 1px solid rgba(16,24,40,0.06);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.4px; margin-bottom: 6px; }
+    .stat-value { font-size: 26px; font-weight: 700; color: var(--text); }
+    .stat-card.danger  { border-color: rgba(239,68,68,0.3);  background: rgba(239,68,68,0.04);  }
+    .stat-card.warning { border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.04); }
+    .stat-card.ok      { border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.04); }
+
+    /* Health banner */
+    #health-banner {
+      padding: 10px 16px; border-radius: 8px; font-size: 14px;
+      margin-bottom: 16px; display: none;
+    }
+    #health-banner.ok      { background: rgba(16,185,129,0.1); color: #059669; border: 1px solid rgba(16,185,129,0.2); }
+    #health-banner.warning { background: rgba(245,158,11,0.1); color: #b45309; border: 1px solid rgba(245,158,11,0.2); }
+
+    /* Alert table */
+    .alerts-table-wrap { overflow-x: auto; margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left; padding: 8px 10px; color: var(--muted);
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+      border-bottom: 1px solid rgba(16,24,40,0.06); white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid rgba(16,24,40,0.04); transition: background .1s; }
+    tbody tr:hover { background: rgba(16,24,40,0.02); cursor: pointer; }
+    tbody td { padding: 10px 10px; vertical-align: top; }
+
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      margin-right: 6px; flex-shrink: 0;
+    }
+    .status-dot.ok      { background: #10b981; }
+    .status-dot.warn    { background: #f59e0b; }
+    .status-dot.error   { background: #ef4444; }
+
+    .issue-tag {
+      display: inline-block; font-size: 11px; padding: 2px 6px;
+      border-radius: 4px; background: rgba(239,68,68,0.08);
+      color: #ef4444; margin: 2px 2px 0 0;
+    }
+
+    .tier-pill {
+      display: inline-block; font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 999px;
+    }
+    .tier-pill.premium { background: linear-gradient(90deg,#6366f1,#8b5cf6); color: #fff; }
+    .tier-pill.basic   { background: rgba(99,102,241,0.1); color: #6366f1; }
+    .tier-pill.free    { background: rgba(107,114,128,0.1); color: #6b7280; }
+
+    /* Detail panel */
+    #detail-panel {
+      position: fixed; inset: 0; z-index: 70;
+      display: flex; align-items: flex-start; justify-content: flex-end;
+    }
+    #detail-panel.hidden { display: none; }
+    #detail-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(2,6,23,0.5); backdrop-filter: blur(2px);
+    }
+    #detail-content {
+      position: relative; background: var(--card);
+      width: min(560px, 96vw); height: 100vh; overflow-y: auto;
+      padding: 20px; border-left: 1px solid rgba(16,24,40,0.06);
+      box-shadow: -8px 0 40px rgba(2,6,23,0.15);
+    }
+    #detail-content h3 { margin-top: 0; }
+    #detail-close {
+      position: absolute; top: 12px; right: 12px;
+      background: transparent; border: none; font-size: 20px;
+      color: var(--muted); cursor: pointer;
+    }
+
+    .detail-section { margin-bottom: 20px; }
+    .detail-section h4 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+      color: var(--muted); margin: 0 0 8px 0;
+    }
+    .detail-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 6px 0; border-bottom: 1px solid rgba(16,24,40,0.04);
+      font-size: 13px; gap: 12px;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key { color: var(--muted); white-space: nowrap; }
+    .detail-val { color: var(--text); font-weight: 600; text-align: right; word-break: break-all; }
+
+    .notif-row {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 7px 0; border-bottom: 1px solid rgba(16,24,40,0.04);
+      font-size: 13px; gap: 8px;
+    }
+    .notif-row:last-child { border-bottom: none; }
+    .notif-type { font-weight: 600; color: var(--text); }
+    .notif-type.price_drop { color: #10b981; }
+    .notif-type.new_listing { color: #6366f1; }
+    .notif-type.availability_change { color: #f59e0b; }
+    .notif-meta { color: var(--muted); font-size: 12px; text-align: right; }
+
+    .price-chain {
+      font-family: monospace; font-size: 12px; color: var(--muted);
+      word-break: break-all; line-height: 1.8;
+    }
+    .price-chain .up   { color: #ef4444; }
+    .price-chain .down { color: #10b981; }
+
+    /* Refresh button spinner reuse */
+    #btn-refresh.loading { opacity: 0.7; pointer-events: none; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="admin-header">
+    <div style="display:flex;align-items:center;gap:12px">
+      <img src="/logo.png" alt="Alert Buzz" style="width:36px;height:36px;border-radius:8px" />
+      <h1>Admin Dashboard</h1>
+    </div>
+    <button id="btn-refresh" class="secondary" style="font-size:13px;padding:6px 12px">↻ Refresh</button>
+  </div>
+
+  <!-- Secret bar -->
+  <div id="secret-bar">
+    <label for="admin-secret-input">Admin secret</label>
+    <input id="admin-secret-input" type="password" placeholder="Enter ADMIN_SECRET" />
+    <button id="btn-load" style="white-space:nowrap">Load dashboard</button>
+  </div>
+
+  <div id="message" class="message hidden"></div>
+  <div id="health-banner"></div>
+
+  <!-- Stats -->
+  <div class="stat-grid" id="stat-grid">
+    <!-- populated by JS -->
+  </div>
+
+  <!-- Alerts table -->
+  <section class="card" id="alerts-card" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin:0">Alerts
+        <span id="summary-counts" style="font-size:13px;font-weight:400;color:var(--muted);margin-left:8px"></span>
+      </h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:13px;color:var(--muted)">
+          <input type="checkbox" id="filter-unhealthy" style="margin-right:4px" />
+          Show unhealthy only
+        </label>
+      </div>
+    </div>
+    <div class="alerts-table-wrap">
+      <table id="alerts-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>User</th>
+            <th>Tier</th>
+            <th>Location</th>
+            <th>Last checked</th>
+            <th>Listings</th>
+            <th>Drops</th>
+            <th>Notifs 48h</th>
+            <th>Issues</th>
+          </tr>
+        </thead>
+        <tbody id="alerts-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<!-- Detail slide-over -->
+<div id="detail-panel" class="hidden">
+  <div id="detail-backdrop"></div>
+  <div id="detail-content">
+    <button id="detail-close">×</button>
+    <div id="detail-body">
+      <p style="color:var(--muted)">Loading…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const $ = sel => document.querySelector(sel);
+
+  function showMsg(msg, isError = false) {
+    const el = $('#message');
+    el.textContent = msg;
+    el.className = `message ${isError ? 'error' : 'success'}`;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 4000);
+  }
+
+  function getSecret() {
+    return $('#admin-secret-input').value.trim() ||
+      sessionStorage.getItem('adminSecret') || '';
+  }
+
+  async function adminFetch(path) {
+    const secret = getSecret();
+    if (!secret) throw new Error('No admin secret');
+    const res = await fetch(path, { headers: { 'x-admin-secret': secret } });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  function relTime(ts) {
+    if (!ts) return '—';
+    const diff = Math.round((Date.now() - new Date(ts)) / 1000);
+    if (diff < 60)   return `${diff}s ago`;
+    if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+    return `${Math.round(diff / 86400)}d ago`;
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString();
+  }
+
+  // ── Stats ─────────────────────────────────────────────────────────────────────
+  function renderStats(s, db) {
+    const overdue = Number(s.overdue_premium_alerts);
+    const failed  = Number(s.failed_emails_24h);
+    const dbLabel = db
+      ? (db.usingReplica ? `⚠️ Railway (fallback)` : `✅ Supabase (primary)`)
+      : '—';
+    const dbCls = db?.usingReplica ? 'warning' : 'ok';
+
+    const cards = [
+      { label: 'Database',            value: dbLabel,                    cls: dbCls },
+      { label: 'Total users',         value: s.total_users,              cls: '' },
+      { label: 'Active alerts',        value: s.active_alerts,            cls: '' },
+      { label: 'Notifications 24h',    value: s.notifications_24h,        cls: '' },
+      { label: 'Price drops 24h',      value: s.price_drops_24h,          cls: Number(s.price_drops_24h) > 0 ? 'ok' : '' },
+      { label: 'Failed emails 24h',    value: s.failed_emails_24h,        cls: failed  > 0 ? 'danger'  : 'ok' },
+      { label: 'Overdue premium',      value: s.overdue_premium_alerts,   cls: overdue > 0 ? 'warning' : 'ok' },
+      { label: 'Listings cached',      value: s.total_listings_cached,    cls: '' },
+    ];
+
+    $('#stat-grid').innerHTML = cards.map(c => `
+      <div class="stat-card ${c.cls}">
+        <div class="stat-label">${c.label}</div>
+        <div class="stat-value">${c.value ?? '—'}</div>
+      </div>
+    `).join('');
+  }
+
+  // ── Alert table ───────────────────────────────────────────────────────────────
+  let allAlerts = [];
+
+  function renderAlerts(alerts) {
+    allAlerts = alerts;
+    applyFilter();
+  }
+
+  function applyFilter() {
+    const onlyUnhealthy = $('#filter-unhealthy').checked;
+    const rows = onlyUnhealthy ? allAlerts.filter(a => !a.healthy) : allAlerts;
+
+    $('#alerts-tbody').innerHTML = rows.map(a => {
+      const dotCls = a.healthy ? 'ok' : (a.issues.length > 1 ? 'error' : 'warn');
+      const issues = a.issues.map(i => `<span class="issue-tag">${i}</span>`).join('');
+      const mins   = a.mins_since_checked != null ? Math.round(Number(a.mins_since_checked)) : null;
+      const lastChecked = mins != null
+        ? (mins < 60 ? `${mins}m ago` : `${Math.round(mins/60)}h ago`)
+        : '—';
+      const loc = (a.location || a.search_url || '—').substring(0, 40);
+
+      return `
+        <tr data-id="${a.id}">
+          <td><span class="status-dot ${dotCls}"></span></td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.user_email}</td>
+          <td><span class="tier-pill ${a.subscription_tier}">${a.subscription_tier}</span></td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${loc}</td>
+          <td style="white-space:nowrap;color:var(--muted)">${lastChecked}</td>
+          <td>${a.known_listings}</td>
+          <td>${a.total_price_drops}</td>
+          <td>${a.notifications_last_48h}</td>
+          <td>${issues || '<span style="color:var(--muted);font-size:12px">none</span>'}</td>
+        </tr>`;
+    }).join('');
+
+    // Row click → detail panel
+    $('#alerts-tbody').querySelectorAll('tr').forEach(tr => {
+      tr.onclick = () => openDetail(tr.dataset.id);
+    });
+  }
+
+  // ── Detail panel ─────────────────────────────────────────────────────────────
+  async function openDetail(id) {
+    $('#detail-panel').classList.remove('hidden');
+    $('#detail-body').innerHTML = '<p style="color:var(--muted)">Loading…</p>';
+
+    try {
+      const data = await adminFetch(`/api/admin/alerts/${id}`);
+      renderDetail(data);
+    } catch (err) {
+      $('#detail-body').innerHTML = `<p style="color:var(--danger)">${err.message}</p>`;
+    }
+  }
+
+  function renderDetail({ alert: a, notifications, priceHistory, results }) {
+    const alertMeta = [
+      ['Alert ID',     a.id],
+      ['Type',         a.alert_type],
+      ['User',         a.email],
+      ['Tier',         `<span class="tier-pill ${a.subscription_tier}">${a.subscription_tier}</span>`],
+      ['Status',       a.is_active ? '✅ Active' : '⛔ Inactive'],
+      ['Free trial',   a.is_free_trial ? `Yes (expires ${fmtDate(a.expires_at)})` : 'No'],
+      ['Location',     a.location || '—'],
+      ['Last checked', fmtDate(a.last_checked)],
+      ['Last notified',fmtDate(a.last_notified)],
+      ['Total notifs', a.notification_count],
+      ['Check-in',     a.check_in  ? a.check_in.split('T')[0]  : '—'],
+      ['Check-out',    a.check_out ? a.check_out.split('T')[0] : '—'],
+      ['Price range',  (a.price_min || a.price_max) ? `$${a.price_min||0} – $${a.price_max||'∞'}` : '—'],
+    ];
+
+    // Price history chain
+    let historyHtml = '<p style="color:var(--muted);font-size:13px">No price history yet.</p>';
+    if (priceHistory && priceHistory.length) {
+      // Group by listing_id
+      const byListing = {};
+      priceHistory.forEach(r => {
+        if (!byListing[r.listing_id]) byListing[r.listing_id] = [];
+        byListing[r.listing_id].push(r);
+      });
+      historyHtml = Object.entries(byListing).slice(0, 10).map(([lid, rows]) => {
+        const prices = rows.map((r, i) => {
+          const val = Number(r.price).toFixed(0);
+          const prev = i > 0 ? Number(rows[i-1].price) : null;
+          const cls  = prev == null ? '' : (Number(r.price) < prev ? 'down' : Number(r.price) > prev ? 'up' : '');
+          return `<span class="${cls}">$${val}</span>`;
+        }).join(' → ');
+        return `<div style="margin-bottom:6px">
+          <span style="font-size:11px;color:var(--muted)">Listing ${lid}:</span>
+          <div class="price-chain">${prices}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Recent notifications
+    let notifHtml = '<p style="color:var(--muted);font-size:13px">No notifications yet.</p>';
+    if (notifications && notifications.length) {
+      notifHtml = notifications.map(n => {
+        const priceStr = (n.old_price && n.new_price)
+          ? `<span style="color:#10b981">$${Number(n.old_price).toFixed(0)} → $${Number(n.new_price).toFixed(0)}</span>`
+          : '';
+        const failedStr = n.email_sent === false
+          ? `<span style="color:#ef4444;font-size:11px"> ✗ email failed</span>` : '';
+        return `<div class="notif-row">
+          <div>
+            <span class="notif-type ${n.notification_type}">${n.notification_type.replace(/_/g,' ')}</span>
+            ${priceStr} ${failedStr}
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Listing ${n.listing_id||'—'}</div>
+          </div>
+          <div class="notif-meta">${relTime(n.sent_at)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Recent results
+    let resultsHtml = '<p style="color:var(--muted);font-size:13px">No results yet.</p>';
+    if (results && results.length) {
+      resultsHtml = results.map(r => {
+        const priceStr = r.change_type === 'price_drop'
+          ? `<span style="color:#10b981"> $${Number(r.old_price).toFixed(0)}→$${Number(r.new_price).toFixed(0)}</span>` : '';
+        return `<div class="notif-row">
+          <div>
+            <span style="font-weight:600;color:var(--text)">${r.change_type}</span>${priceStr}
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${r.name || r.listing_id}</div>
+          </div>
+          <div class="notif-meta">${relTime(r.detected_at)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    $('#detail-body').innerHTML = `
+      <h3 style="margin:0 0 16px 0">Alert #${a.id}</h3>
+
+      <div class="detail-section">
+        <h4>Overview</h4>
+        ${alertMeta.map(([k,v]) => `
+          <div class="detail-row">
+            <span class="detail-key">${k}</span>
+            <span class="detail-val">${v}</span>
+          </div>`).join('')}
+      </div>
+
+      <div class="detail-section">
+        <h4>Price history (last 50 points, up to 10 listings)</h4>
+        ${historyHtml}
+      </div>
+
+      <div class="detail-section">
+        <h4>Recent notifications</h4>
+        ${notifHtml}
+      </div>
+
+      <div class="detail-section">
+        <h4>Recent scrape results</h4>
+        ${resultsHtml}
+      </div>
+    `;
+  }
+
+  // ── Load everything ───────────────────────────────────────────────────────────
+  async function loadDashboard() {
+    const secret = getSecret();
+    if (!secret) { showMsg('Enter your admin secret first', true); return; }
+    sessionStorage.setItem('adminSecret', secret);
+
+    const btn = $('#btn-refresh');
+    btn.classList.add('loading');
+    btn.textContent = 'Loading…';
+
+    try {
+      const [statsData, alertsData] = await Promise.all([
+        adminFetch('/api/admin/stats'),
+        adminFetch('/api/admin/alerts'),
+      ]);
+
+      renderStats(statsData.stats, statsData.db);
+
+      const { summary, alerts } = alertsData;
+      $('#summary-counts').textContent =
+        `${summary.total} total · ${summary.healthy} healthy · ${summary.unhealthy} unhealthy`;
+
+      // Health banner
+      const banner = $('#health-banner');
+      if (summary.unhealthy === 0) {
+        banner.className = 'ok';
+        banner.textContent = `✅ All ${summary.total} alerts are healthy`;
+        banner.style.display = 'block';
+      } else {
+        banner.className = 'warning';
+        banner.textContent = `⚠️ ${summary.unhealthy} alert${summary.unhealthy > 1 ? 's' : ''} need attention`;
+        banner.style.display = 'block';
+      }
+
+      renderAlerts(alerts);
+      $('#alerts-card').style.display = 'block';
+
+    } catch (err) {
+      showMsg(err.message || 'Failed to load dashboard', true);
+    } finally {
+      btn.classList.remove('loading');
+      btn.textContent = '↻ Refresh';
+    }
+  }
+
+  // ── Wire up ───────────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    // Restore secret from session if present
+    const saved = sessionStorage.getItem('adminSecret');
+    if (saved) $('#admin-secret-input').value = saved;
+
+    $('#btn-load').onclick    = loadDashboard;
+    $('#btn-refresh').onclick = loadDashboard;
+
+    $('#admin-secret-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') loadDashboard();
+    });
+
+    $('#filter-unhealthy').onchange = applyFilter;
+
+    // Detail panel close
+    $('#detail-close').onclick    = () => $('#detail-panel').classList.add('hidden');
+    $('#detail-backdrop').onclick = () => $('#detail-panel').classList.add('hidden');
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') $('#detail-panel').classList.add('hidden');
+    });
+
+    // Auto-load if secret already in session
+    if (saved) loadDashboard();
+  });
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
+import os
 import sys
-sys.path.insert(0, 'src/python')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 from airbnb_search import HEADERS, get_api_key
 from curl_cffi import requests as cffi_requests
 import json

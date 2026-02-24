@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────────────────┐
-│   Airbnb Alerts App         │
+│   Alert Buzz App         │
 │  (Node.js / Express)        │
 └──────────────┬──────────────┘
                │
@@ -31,7 +31,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│           Airbnb Alerts Application                  │
+│           Alert Buzz Application                  │
 │              (src/db/config.js)                      │
 │                                                      │
 │  Smart Query Router:                                │

@@ -1,41 +1,47 @@
 const $ = (sel) => document.querySelector(sel);
 
-function apiRequest(method, path, body) {
-  const token = localStorage.getItem('token');
-  return fetch(path, {
+function isAirbnbHostname(hostname) {
+  if (!hostname) return false;
+  const normalized = String(hostname).toLowerCase();
+  return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
+}
+
+/**
+ * Central API helper. Auth is handled entirely via HttpOnly cookies — no tokens
+ * in JS. On a 401 we attempt one silent refresh (POST /api/auth/refresh, which
+ * also uses a cookie), then retry. If that fails we redirect to /auth.
+ */
+async function apiRequest(method, path, body) {
+  const opts = {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin'
-  }).then(async (res) => {
-    const json = await res.json().catch(() => ({}));
-    if (res.ok) return json;
+    credentials: 'same-origin', // always send cookies
+  };
 
-    // Try transparent refresh once for expired access tokens
-    if (res.status === 401 && json && (json.error === 'Invalid or expired token' || json.error === 'Access token required')) {
-      try {
-        const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
-        const refreshJson = await refreshRes.json().catch(() => ({}));
-        if (refreshRes.ok && refreshJson.token) {
-          localStorage.setItem('token', refreshJson.token);
-          // ensure we proactively schedule the next refresh
-          try { scheduleTokenRefresh(); } catch (e) { /* ignore */ }
-          const retryHeaders = Object.assign({}, { 'Content-Type': 'application/json' }, { Authorization: `Bearer ${refreshJson.token}` });
-          const retry = await fetch(path, { method, headers: retryHeaders, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
-          const retryJson = await retry.json().catch(() => ({}));
-          if (retry.ok) return retryJson;
-          throw retryJson;
-        }
-      } catch (err) {
-        // fall through to original error
-      }
+  let res  = await fetch(path, opts);
+  let json = await res.json().catch(() => ({}));
+  if (res.ok) return json;
+
+  // On 401 try a silent token refresh then replay the original request once
+  if (res.status === 401) {
+    const refreshed = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (refreshed.ok) {
+      res  = await fetch(path, opts);
+      json = await res.json().catch(() => ({}));
+      if (res.ok) return json;
+    } else {
+      // Refresh token is gone or expired — send to login
+      window.location.href = '/auth';
+      throw new Error('Session expired');
     }
+  }
 
-    throw json;
-  });
+  throw json;
 }
 
 
@@ -67,103 +73,11 @@ function setBtnLoading(btn, loading, tempText) {
   } catch (e) { /* best-effort */ }
 }
 
-// --- silent refresh helpers ---------------------------------
-let _refreshTimer = null;
-
-function decodeJwt(token) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = decodeURIComponent(atob(payload).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
-    return JSON.parse(json);
-  } catch (e) {
-    return null;
-  }
-}
-
-async function refreshAccessTokenSilently() {
-  try {
-    const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
-    const json = await res.json().catch(() => ({}));
-    if (res.ok && json.token) {
-      localStorage.setItem('token', json.token);
-      scheduleTokenRefresh();
-      return true;
-    }
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
-
-function scheduleTokenRefresh() {
-  if (_refreshTimer) { clearTimeout(_refreshTimer); _refreshTimer = null; }
-  const token = localStorage.getItem('token');
-  if (!token) return;
-  const payload = decodeJwt(token);
-  if (!payload || !payload.exp) return;
-  const expiresAt = payload.exp * 1000; // exp is in seconds
-  const msUntilExpiry = expiresAt - Date.now();
-  // refresh 60s before expiry, but at least after 5s
-  const refreshIn = Math.max(5000, msUntilExpiry - 60 * 1000);
-  if (refreshIn <= 0) {
-    // token is already expired or about to — try immediate refresh
-    refreshAccessTokenSilently().then(ok => { if (!ok) { /* let apiRequest handle logout on next call */ } });
-    return;
-  }
-  _refreshTimer = setTimeout(async () => {
-    const ok = await refreshAccessTokenSilently();
-    if (!ok) {
-      // if refresh failed, clear token and navigate to auth (user will see login page)
-      localStorage.removeItem('token');
-      showMessage('Session expired — please sign in again', true);
-      window.location.href = '/auth.html';
-    }
-  }, refreshIn);
-}
-
-async function handleRegister() {
-  try {
-    const email = $('#email').value.trim().toLowerCase();
-    const password = $('#password').value;
-    const res = await apiRequest('POST', '/api/auth/register', { email, password });
-    localStorage.setItem('token', res.token);
-  try { scheduleTokenRefresh(); } catch (e) { /* ignore */ }
-    showLoggedInState();
-    showMessage('Registered and logged in');
-  } catch (err) {
-    showMessage(err.error || JSON.stringify(err), true);
-  }
-}
-
-async function handleLogin() {
-  try {
-    const email = $('#email').value.trim().toLowerCase();
-    const password = $('#password').value;
-    const res = await apiRequest('POST', '/api/auth/login', { email, password });
-    localStorage.setItem('token', res.token);
-  try { scheduleTokenRefresh(); } catch (e) { /* ignore */ }
-    showLoggedInState();
-    showMessage('Logged in');
-  } catch (err) {
-    showMessage(err.error || JSON.stringify(err), true);
-  }
-}
-
-function handleLogout() {
-  // notify server to revoke refresh token cookie
-  apiRequest('POST', '/api/auth/logout').catch(() => {});
-  localStorage.removeItem('token');
-  if (_refreshTimer) { clearTimeout(_refreshTimer); _refreshTimer = null; }
-  // Clear locally persisted preview state on logout for privacy
+async function handleLogout() {
+  try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch { /* ignore */ }
+  // Clear non-sensitive UI state from localStorage
   localStorage.removeItem('lastPreview');
-  document.getElementById('btn-logout').classList.add('hidden');
-  document.getElementById('create-alert-card').classList.add('hidden');
-  document.getElementById('alerts-card').classList.add('hidden');
-  showMessage('Logged out');
-  // go back to auth page
-  window.location.href = '/auth.html';
+  window.location.href = '/auth';
 }
 
 async function createUrlAlert() {
@@ -179,7 +93,13 @@ async function createUrlAlert() {
   try {
     const search_url = $('#alert-search-url').value.trim();
     if (!search_url) return showMessage('Please paste an Airbnb search URL', true);
-    if (!search_url.includes('airbnb.com')) return showMessage('URL must be from airbnb.com', true);
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(search_url);
+    } catch (e) {
+      return showMessage('Please enter a valid URL', true);
+    }
+    if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from airbnb.com', true);
     const res = await apiRequest('POST', '/api/alerts/url', { search_url });
     
     // Show appropriate message based on alert type
@@ -198,7 +118,7 @@ async function createUrlAlert() {
       showMessage(err.error, true);
       // Redirect to billing page to upgrade
       setTimeout(() => {
-        window.location.href = '/billing.html';
+        window.location.href = '/billing';
       }, 1500);
     } else {
       showMessage(err.error || JSON.stringify(err), true);
@@ -216,7 +136,7 @@ async function createUrlAlert() {
 function parseAirbnbSearchUrl(urlString) {
   try {
     const url = new URL(urlString);
-    if (!url.hostname.includes('airbnb.com')) return null;
+    if (!isAirbnbHostname(url.hostname)) return null;
     const sp = url.searchParams;
     const asInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
     const adults = asInt(sp.get('adults')) || 0;
@@ -310,6 +230,26 @@ function formatDateForDisplay(d) {
   }
 }
 
+function getAlertTitle(a) {
+  if (!a) return 'Alert';
+
+  if (a.location && String(a.location).trim()) return String(a.location).trim();
+  if (a.listing_url && String(a.listing_url).trim()) return String(a.listing_url).trim();
+  if (a.search_url && String(a.search_url).trim()) {
+    try {
+      const u = new URL(a.search_url);
+      const query = u.searchParams.get('query');
+      if (query && query.trim()) return query.trim();
+      return `${u.hostname}${u.pathname}`;
+    } catch (e) {
+      return String(a.search_url).trim();
+    }
+  }
+  if (a.listing_id) return `Listing ${a.listing_id}`;
+  if (a.id) return `Alert #${a.id}`;
+  return 'Alert';
+}
+
 function renderAlerts(alerts) {
   const container = $('#alerts-list');
   if (!alerts || alerts.length === 0) {
@@ -332,6 +272,14 @@ function renderAlerts(alerts) {
       expirationInfo = `<span class="badge free-trial">Running 1x per day</span>`;
     }
     
+    const title = getAlertTitle(a);
+    const isActive = a.is_active !== false;
+    const typeLabel = a.alert_type === 'listing' ? 'Listing alert' : 'Search alert';
+    const statusBadge = `<span class="badge ${isActive ? '' : 'free-trial'}">${isActive ? 'Active' : 'Paused'}</span>`;
+    const checkMeta = a.last_checked ? `Last checked ${new Date(a.last_checked).toLocaleString()}` : 'Not checked yet';
+    const notifMeta = Number.isFinite(Number(a.notification_count))
+      ? `${a.notification_count} notifications`
+      : '0 notifications';
     const controlsHtml = `
         <div class="controls">
           ${a.alert_type === 'search' ? `<button data-id="${a.id}" class="btn-see-search">See your search</button>` : ''}
@@ -342,9 +290,12 @@ function renderAlerts(alerts) {
     div.innerHTML = `
         <div class="meta">
               ${a.check_in && a.check_out ? `<span class="badge date-range">${formatDateForDisplay(a.check_in)} → ${formatDateForDisplay(a.check_out)}</span>` : ''}
+              <span class="badge">${typeLabel}</span>
+              ${statusBadge}
               ${expirationInfo}
             </div>
-        <div>${a.search_url ? (a.location || '') : (a.listing_url || a.location || '')}</div>
+        <div>${title}</div>
+        <div style="color:var(--muted);font-size:12px">${checkMeta} · ${notifMeta}</div>
         ${controlsHtml}
       `;
     container.appendChild(div);
@@ -746,12 +697,21 @@ async function loadNotifications() {
       container.innerHTML = '<i>No notifications yet</i>';
       return;
     }
-    container.innerHTML = res.notifications.map(n => `
-      <div class="alert-item">
-        <div><strong>${n.notification_type}</strong> — ${n.listing_name || n.listing_id || ''}</div>
-        <div style="color:rgba(255,255,255,0.6)">${new Date(n.sent_at).toLocaleString()}</div>
-      </div>
-    `).join('');
+    container.innerHTML = res.notifications.map(n => {
+      const isPriceDrop = n.notification_type === 'price_drop';
+      const priceChange = (isPriceDrop && n.old_price && n.new_price)
+        ? `<span style="color:#48bb78;margin-left:8px">&#x25bc; ${(n.old_price - n.new_price).toFixed(0)} (${Number(n.old_price).toFixed(0)} → ${Number(n.new_price).toFixed(0)})</span>`
+        : '';
+      return `
+        <div class="alert-item">
+          <div>
+            <strong>${n.notification_type.replace('_', ' ')}</strong>
+            — ${n.listing_name || n.listing_id || ''}
+            ${priceChange}
+          </div>
+          <div style="color:var(--muted)">${new Date(n.sent_at).toLocaleString()}</div>
+        </div>`;
+    }).join('');
   } catch (err) {
     console.error(err);
   }
@@ -760,7 +720,8 @@ async function loadNotifications() {
 async function loadAlerts() {
   try {
     const res = await apiRequest('GET', '/api/alerts');
-    renderAlerts(res.alerts || []);
+    const alerts = Array.isArray(res?.alerts) ? res.alerts : (Array.isArray(res) ? res : []);
+    renderAlerts(alerts);
     document.getElementById('alerts-card').classList.remove('hidden');
   } catch (err) {
     console.error('Failed to load alerts:', err);
@@ -774,23 +735,23 @@ async function showLoggedInState() {
   // Show user menu
   document.getElementById('user-menu-btn').classList.remove('hidden');
 
-  // Load user email + subscription tier from token (fallback to /api/auth/me)
-  const token = localStorage.getItem('token');
-  let payload = null;
+  // Fetch user info from the server (cookie handles auth — no token parsing needed)
   let tier = null;
-  if (token) {
-    try { payload = decodeJwt(token); } catch (e) { payload = null; }
-    if (payload && payload.email) {
+  try {
+    const res = await apiRequest('GET', '/api/auth/me');
+    if (res && res.user) {
+      tier = res.user.subscription_tier || null;
       const emailEl = document.getElementById('user-email-display');
-      if (emailEl) emailEl.textContent = payload.email;
+      if (emailEl && res.user.email) emailEl.textContent = res.user.email;
     }
-    tier = payload && payload.subscription_tier ? payload.subscription_tier : null;
+  } catch (e) {
+    // apiRequest will redirect to /auth.html on 401, so we only land here on other errors
   }
 
-  // show a small tier badge in the user menu for debugging/visibility
+  // Show tier badge
   try {
     const userMenuBtn = document.getElementById('user-menu-btn');
-    if (userMenuBtn) {
+    if (userMenuBtn && tier) {
       let tierEl = document.getElementById('user-tier-badge');
       if (!tierEl) {
         tierEl = document.createElement('span');
@@ -800,29 +761,12 @@ async function showLoggedInState() {
         if (emailEl && emailEl.parentNode) emailEl.parentNode.insertBefore(tierEl, emailEl.nextSibling);
         else userMenuBtn.appendChild(tierEl);
       }
-      // update display (will be updated again after /api/auth/me if needed)
-      if (tier) {
-        tierEl.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
-        tierEl.className = `user-tier-badge ${tier}`;
-      } else {
-        tierEl.textContent = '';
-        tierEl.className = 'user-tier-badge';
-      }
+      tierEl.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+      tierEl.className = `user-tier-badge ${tier}`;
     }
   } catch (e) { /* ignore */ }
 
-  // If JWT doesn't include subscription_tier (or it's unreliable), fetch server-side
-  if (!tier) {
-    try {
-      const res = await apiRequest('GET', '/api/auth/me');
-      if (res && res.user && res.user.subscription_tier) tier = res.user.subscription_tier;
-    } catch (e) {
-      // ignore — we'll default to hiding the free banner
-    }
-  }
-
-  // debug: show resolved tier in console for troubleshooting
-  try { console.debug('Resolved subscription_tier for UI:', tier, ' (payload)', payload); } catch (e) { /* ignore */ }
+  console.debug('Resolved subscription_tier for UI:', tier);
 
   // Show/hide the free-trial notice: only for explicit "free" tier users
   try {
@@ -843,13 +787,6 @@ async function showLoggedInState() {
 }
 
 function init() {
-  // Redirect to auth page if not signed in
-  const token = localStorage.getItem('token');
-  if (!token) return window.location.href = '/auth.html';
-
-  // Schedule silent refresh for the existing token
-  try { scheduleTokenRefresh(); } catch (e) { /* ignore */ }
-
   // Wire up buttons that exist in the DOM
   const safeOn = (sel, handler) => { const el = $(sel); if (el) el.addEventListener('click', handler); };
   const safeKey = (sel, handler) => { const el = $(sel); if (el) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') handler(); }); };
@@ -911,7 +848,7 @@ function init() {
 
   // Alert-created confirmation modal controls
   safeOn('#btn-alert-created-notnow', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
-  safeOn('#btn-upgrade-now', () => { window.location.href = '/billing.html'; });
+  safeOn('#btn-upgrade-now', () => { window.location.href = '/billing'; });
   safeOn('#alert-created-close', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
   const _acBackdrop = $('#alert-created-backdrop'); if (_acBackdrop) _acBackdrop.addEventListener('click', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
 
@@ -933,22 +870,9 @@ function closeConfirm(result) {
   if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
 }
 
-// Show the "alert created" confirmation modal after creating a URL alert.
 function showAlertCreatedModal() {
   const modal = $('#alert-created-modal');
   if (!modal) return;
-
-  // Hide the upgrade CTA if the current user is already premium
-  try {
-    const token = localStorage.getItem('token');
-    const payload = token ? decodeJwt(token) : null;
-    const upgradeBtn = $('#btn-upgrade-now');
-    if (upgradeBtn) {
-      if (payload && payload.subscription_tier === 'premium') upgradeBtn.classList.add('hidden');
-      else upgradeBtn.classList.remove('hidden');
-    }
-  } catch (e) { /* ignore */ }
-
   modal.classList.remove('hidden');
 }
 
@@ -961,29 +885,31 @@ function showLimitModal() {
   if ($('#limit-close')) $('#limit-close').onclick = () => modal.classList.add('hidden');
   if ($('#limit-backdrop')) $('#limit-backdrop').onclick = () => modal.classList.add('hidden');
   // upgrade button navigates to billing
-  if ($('#btn-limit-upgrade')) $('#btn-limit-upgrade').onclick = () => { window.location.href = '/billing.html'; };
+  if ($('#btn-limit-upgrade')) $('#btn-limit-upgrade').onclick = () => { window.location.href = '/billing'; };
   if ($('#btn-limit-cancel')) $('#btn-limit-cancel').onclick = () => modal.classList.add('hidden');
 }
 
 // Returns true if user CAN create another search alert. If false, shows limit modal.
 async function ensureCanCreateSearchAlert() {
   try {
-    const token = localStorage.getItem('token');
-    const payload = token ? decodeJwt(token) : null;
-    if (payload && payload.subscription_tier === 'premium') return true;
-
-    // For free/basic tiers, fetch current alerts and count active search alerts
-    const res = await apiRequest('GET', '/api/alerts');
-    const alerts = res.alerts || [];
-    const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
-    if (activeSearchCount >= 1) {
-      showLimitModal();
-      return false;
+    // Ask the server for current user + alert count — no local token parsing needed
+    const [meRes, alertsRes] = await Promise.all([
+      apiRequest('GET', '/api/auth/me'),
+      apiRequest('GET', '/api/alerts'),
+    ]);
+    const tier = meRes?.user?.subscription_tier;
+    if (tier === 'premium') return true;
+    const alerts = alertsRes.alerts || [];
+    if (tier === 'free') {
+      const totalSearchCount = alerts.filter(a => a.alert_type === 'search').length;
+      if (totalSearchCount >= 1) { showLimitModal(); return false; }
+      return true;
     }
+    const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
+    if (activeSearchCount >= 1) { showLimitModal(); return false; }
     return true;
-  } catch (err) {
-    // If anything goes wrong, fall back to server-side enforcement
-    return true;
+  } catch {
+    return true; // fall back to server-side enforcement
   }
 }
 
@@ -1032,6 +958,34 @@ async function showListingModal(listingId) {
     `;
 
     // ("Save as alert" removed from listing modal)
+
+    // Load price history if we have an alertId in context
+    const activeAlertId = $('#listings-for-id')?.textContent?.trim();
+    if (activeAlertId && listingId) {
+      try {
+        const ph = await apiRequest('GET', `/api/listings/alert/${activeAlertId}/listing/${listingId}/price-history`);
+        if (ph.history && ph.history.length > 1) {
+          const s = ph.summary;
+          const direction = s.change < 0 ? '▼' : s.change > 0 ? '▲' : '→';
+          const colour    = s.change < 0 ? '#48bb78' : s.change > 0 ? '#f56565' : '#a0aec0';
+          const points    = ph.history.map(r => `${Number(r.price).toFixed(0)}`).join(' → ');
+          const historyEl = document.createElement('div');
+          historyEl.style.cssText = 'margin:12px 0;padding:10px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:13px';
+          historyEl.innerHTML = `
+            <div style="color:var(--muted);margin-bottom:6px">Price history (${s.dataPoints} data points)</div>
+            <div style="color:${colour};font-size:15px;font-weight:600;margin-bottom:4px">
+              ${direction} ${Math.abs(s.change).toFixed(0)} (${Math.abs(s.changePct)}%) since first seen
+            </div>
+            <div style="color:rgba(255,255,255,0.5);word-break:break-word">${points}</div>
+            <div style="display:flex;gap:16px;margin-top:6px;color:var(--muted)">
+              <span>Low: <strong style="color:var(--text)">${s.lowest}</strong></span>
+              <span>High: <strong style="color:var(--text)">${s.highest}</strong></span>
+              <span>Now: <strong style="color:var(--text)">${s.latest}</strong></span>
+            </div>`;
+          body.insertBefore(historyEl, body.querySelector('#modal-check-calendar').closest('div'));
+        }
+      } catch (e) { /* no history yet — silently skip */ }
+    }
 
     $('#modal-check-calendar').onclick = async () => {
       const btn = $('#modal-check-calendar');

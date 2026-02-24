@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { searchAirbnb } from './src/workers/python-executor.js';
+import { searchAirbnb } from '../src/workers/python-executor.js';
 
 const paramsBase = {
   check_in: '2026-03-03',

@@ -51,7 +51,7 @@ function planKeyFromPriceId(priceId) {
 
 // Map plan key → subscription_tier for the users table
 function tierFromPlanKey(planKey) {
-  return PLANS[planKey]?.dbTier || 'basic';
+  return PLANS[planKey]?.dbTier || 'free';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -69,6 +69,36 @@ async function getOrCreateStripeCustomer(user) {
     [customer.id, user.id]
   );
   return customer.id;
+}
+
+// Queue billing-related transactional email events for Dreamlit (DB-triggered flow).
+async function enqueueBillingEmailEvent(userId, eventType, payload = {}) {
+  try {
+    const userRes = await query(
+      'SELECT email FROM users WHERE id = $1',
+      [userId]
+    );
+    const email = userRes.rows[0]?.email;
+    if (!email) return;
+
+    await query(
+      `INSERT INTO transactional_email_events
+         (user_id, recipient_email, event_type, payload, status)
+       VALUES ($1, $2, $3, $4::jsonb, 'pending')`,
+      [userId, email, eventType, JSON.stringify(payload || {})]
+    );
+  } catch (err) {
+    // Do not break billing if the email-events table is unavailable.
+    logger.warn('Failed to enqueue billing email event:', err.message);
+  }
+}
+
+async function findUserByStripeCustomerId(stripeCustomerId) {
+  const userRes = await query(
+    'SELECT id, email FROM users WHERE stripe_customer_id = $1',
+    [stripeCustomerId]
+  );
+  return userRes.rows[0] || null;
 }
 
 // Upsert the local subscriptions row from a Stripe subscription object
@@ -117,7 +147,7 @@ async function syncSubscription(sub) {
   const activeStatuses = ['active', 'trialing'];
   await query(
     `UPDATE users SET subscription_tier = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-    [activeStatuses.includes(sub.status) ? tier : 'basic', userId]
+    [activeStatuses.includes(sub.status) ? tier : 'free', userId]
   );
 }
 
@@ -185,8 +215,8 @@ router.post('/checkout', authenticateToken, async (req, res) => {
       customer:   customerId,
       mode:       'subscription',
       line_items: [{ price: plan.priceId, quantity: 1 }],
-      success_url: `${process.env.API_BASE_URL}/?checkout=success`,
-      cancel_url:  `${process.env.API_BASE_URL}/?checkout=cancelled`,
+      success_url: `${process.env.API_BASE_URL}/billing?checkout=success`,
+      cancel_url:  `${process.env.API_BASE_URL}/billing?checkout=cancelled`,
       metadata: {
         userId:   String(user.id),
         plan_key,
@@ -229,9 +259,11 @@ router.post('/portal', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── POST /api/billing/webhook ────────────────────────────────────────────────
-// Stripe sends events here — MUST use raw body (registered before express.json())
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+// ─── Stripe webhook handler ────────────────────────────────────────────────
+// Exported separately so index.js can mount it BEFORE express.json() is applied.
+// Stripe signature verification requires the raw Buffer; if express.json() runs
+// first it parses the body to an object and the signature check always fails.
+export async function stripeWebhookHandler(req, res) {
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -253,6 +285,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         if (session.mode === 'subscription' && session.subscription) {
           const sub = await stripe.subscriptions.retrieve(session.subscription);
           await syncSubscription(sub);
+          const userId = Number(session?.metadata?.userId);
+          if (Number.isFinite(userId)) {
+            await enqueueBillingEmailEvent(userId, 'subscription_started', {
+              stripe_subscription_id: sub.id,
+              status: sub.status,
+              plan_key: session?.metadata?.plan_key || null,
+            });
+          }
         }
         break;
       }
@@ -260,11 +300,22 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       case 'customer.subscription.updated':
       case 'customer.subscription.created':
         await syncSubscription(event.data.object);
+        {
+          const sub = event.data.object;
+          const user = await findUserByStripeCustomerId(sub.customer);
+          if (user?.id) {
+            await enqueueBillingEmailEvent(user.id, 'subscription_updated', {
+              stripe_subscription_id: sub.id,
+              status: sub.status,
+              cancel_at_period_end: sub.cancel_at_period_end,
+              current_period_end: sub.current_period_end || null,
+            });
+          }
+        }
         break;
 
       case 'customer.subscription.deleted': {
         const sub = event.data.object;
-        // Mark cancelled, downgrade tier
         await query(
           `UPDATE subscriptions SET status = 'canceled', updated_at = CURRENT_TIMESTAMP
            WHERE stripe_subscription_id = $1`,
@@ -276,10 +327,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         );
         if (userRes.rows.length) {
           await query(
-            `UPDATE users SET subscription_tier = 'basic', updated_at = CURRENT_TIMESTAMP
+            `UPDATE users SET subscription_tier = 'free', updated_at = CURRENT_TIMESTAMP
              WHERE id = $1`,
             [userRes.rows[0].id]
           );
+          await enqueueBillingEmailEvent(userRes.rows[0].id, 'subscription_canceled', {
+            stripe_subscription_id: sub.id,
+            status: sub.status,
+          });
         }
         break;
       }
@@ -292,12 +347,26 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
              WHERE stripe_subscription_id = $1`,
             [invoice.subscription]
           );
+          const userRes = await query(
+            `SELECT user_id
+             FROM subscriptions
+             WHERE stripe_subscription_id = $1
+             LIMIT 1`,
+            [invoice.subscription]
+          );
+          if (userRes.rows.length) {
+            await enqueueBillingEmailEvent(userRes.rows[0].user_id, 'invoice_payment_failed', {
+              stripe_subscription_id: invoice.subscription,
+              invoice_id: invoice.id || null,
+              amount_due: invoice.amount_due || null,
+              currency: invoice.currency || null,
+            });
+          }
         }
         break;
       }
 
       default:
-        // Unhandled event type — ignore
         break;
     }
 
@@ -306,6 +375,6 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     logger.error('Webhook handler error:', err);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
-});
+}
 
 export default router;

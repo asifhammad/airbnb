@@ -1,39 +1,33 @@
 const $ = (sel) => document.querySelector(sel);
 
-function apiRequest(method, path, body) {
-  const token = localStorage.getItem('token');
-  return fetch(path, {
+async function apiRequest(method, path, body) {
+  const opts = {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin'
-  }).then(async (res) => {
-    const json = await res.json().catch(() => ({}));
-    if (res.ok) return json;
+    credentials: 'same-origin',
+  };
+  let res  = await fetch(path, opts);
+  let json = await res.json().catch(() => ({}));
+  if (res.ok) return json;
 
-    // Try transparent refresh once for expired access tokens
-    if (res.status === 401 && json && (json.error === 'Invalid or expired token' || json.error === 'Access token required')) {
-      try {
-        const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
-        const refreshJson = await refreshRes.json().catch(() => ({}));
-        if (refreshRes.ok && refreshJson.token) {
-          localStorage.setItem('token', refreshJson.token);
-          const retryHeaders = Object.assign({}, { 'Content-Type': 'application/json' }, { Authorization: `Bearer ${refreshJson.token}` });
-          const retry = await fetch(path, { method, headers: retryHeaders, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
-          const retryJson = await retry.json().catch(() => ({}));
-          if (retry.ok) return retryJson;
-          throw retryJson;
-        }
-      } catch (err) {
-        // fall through to original error
-      }
+  if (res.status === 401) {
+    const refreshed = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+    });
+    if (refreshed.ok) {
+      res  = await fetch(path, opts);
+      json = await res.json().catch(() => ({}));
+      if (res.ok) return json;
+    } else {
+      window.location.href = '/auth';
+      throw new Error('Session expired');
     }
+  }
 
-    throw json;
-  });
+  throw json;
 }
 
 function showMessage(msg, isError = false) {
@@ -63,39 +57,9 @@ function setBtnLoading(btn, loading, tempText) {
   } catch (e) { /* best-effort */ }
 }
 
-function decodeJwt(token) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = decodeURIComponent(atob(payload).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
-    return JSON.parse(json);
-  } catch (e) {
-    return null;
-  }
-}
-
-async function refreshAccessTokenSilently() {
-  try {
-    const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
-    const json = await res.json().catch(() => ({}));
-    if (res.ok && json.token) {
-      localStorage.setItem('token', json.token);
-      return true;
-    }
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
-
 function handleLogout() {
-  // notify server to revoke refresh token cookie
-  apiRequest('POST', '/api/auth/logout').catch(() => {});
-  localStorage.removeItem('token');
-  showMessage('Logged out');
-  // go back to auth page
-  window.location.href = '/auth.html';
+  fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+  window.location.href = '/auth';
 }
 
 // ── Billing / subscription ───────────────────────────────────────────────────
@@ -114,9 +78,11 @@ async function loadSubscription() {
     const res = await apiRequest('GET', '/api/billing/subscription');
     _currentSubscription = res;
     renderPlanSummary(res);
+    return res;
   } catch (err) {
     console.error('loadSubscription error', err);
     showMessage('Failed to load subscription', true);
+    return null;
   }
 }
 
@@ -229,11 +195,7 @@ async function handleManageBilling() {
   }
 }
 
-function init() {
-  // Redirect to auth page if not signed in
-  const token = localStorage.getItem('token');
-  if (!token) return window.location.href = '/auth.html';
-
+async function init() {
   // Wire up buttons
   $('#btn-logout').addEventListener('click', handleLogout);
   $('#btn-upgrade').addEventListener('click', handleUpgradeClick);
@@ -246,15 +208,27 @@ function init() {
 
   // Handle return from Stripe Checkout
   const urlParams = new URLSearchParams(window.location.search);
+  const returningFromCheckout = urlParams.get('checkout');
+  if (returningFromCheckout === 'success') {
+    showMessage('Payment received. Confirming your subscription…');
+  }
   if (urlParams.get('checkout') === 'success') {
-    showMessage('Payment successful — your plan is now active!');
-    history.replaceState({}, '', '/billing.html');
+    // verify against server state after webhook processing
   } else if (urlParams.get('checkout') === 'cancelled') {
     showMessage('Checkout cancelled — no charge was made.', true);
-    history.replaceState({}, '', '/billing.html');
+    history.replaceState({}, '', '/billing');
   }
 
-  loadSubscription();
+  const subData = await loadSubscription();
+  if (returningFromCheckout === 'success') {
+    const status = subData?.subscription?.status;
+    if (status === 'active' || status === 'trialing') {
+      showMessage('Payment successful — your plan is now active!');
+    } else {
+      showMessage('Payment was completed, but activation is still processing. Refresh in a moment if needed.');
+    }
+    history.replaceState({}, '', '/billing');
+  }
 }
 
 init();

@@ -32,22 +32,25 @@ class DatabaseMigrator {
     // Source pool (Railway)
     this.sourcePool = new Pool({
       connectionString: process.env.DATABASE_REPLICA_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      ssl: { rejectUnauthorized: false },
     });
 
-    // Target pool (Supabase)
+    // Target pool (Supabase) — always SSL, forces IPv4 resolution
     this.targetPool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      ssl: { rejectUnauthorized: false },
     });
 
     this.tables = [
       'users',
       'password_reset_tokens',
+      'refresh_tokens',
       'search_alerts',
       'listings',
       'search_results',
-      'notifications'
+      'listing_price_history',
+      'notifications',
+      'audit_logs',
     ];
 
     this.migrationLog = {
@@ -185,18 +188,35 @@ class DatabaseMigrator {
       tableLog.sourceCount = await this.getTableStats(this.sourcePool, tableName);
       await this.log(`  Source ${tableName}: ${tableLog.sourceCount} rows`);
 
-      // Get table structure
-      const columnsResult = await this.sourcePool.query(`
-        SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns
-        WHERE table_name = $1
-        ORDER BY ordinal_position
-      `, [tableName]);
+      // Get columns from BOTH source and target, only migrate intersection.
+      // This handles schema drift where Railway has columns not yet in schema.sql.
+      const [sourceColRes, targetColRes] = await Promise.all([
+        this.sourcePool.query(
+          `SELECT column_name FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = $1
+           ORDER BY ordinal_position`, [tableName]
+        ),
+        this.targetPool.query(
+          `SELECT column_name FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = $1
+           ORDER BY ordinal_position`, [tableName]
+        ),
+      ]);
 
-      const columns = columnsResult.rows.map(row => row.column_name);
+      const sourceColumns = new Set(sourceColRes.rows.map(r => r.column_name));
+      const targetColumns = new Set(targetColRes.rows.map(r => r.column_name));
+
+      // Warn about columns on source that won't be migrated
+      for (const col of sourceColumns) {
+        if (!targetColumns.has(col)) {
+          await this.log(`  Skipping column "${col}" on ${tableName} — not present on target (add to schema.sql)`, 'warn');
+        }
+      }
+
+      const columns = [...sourceColumns].filter(c => targetColumns.has(c));
       const columnsList = columns.join(', ');
 
-      // Fetch all data from source
+      // Fetch all data from source (only shared columns)
       const sourceResult = await this.sourcePool.query(
         `SELECT ${columnsList} FROM ${tableName}`
       );
@@ -211,9 +231,33 @@ class DatabaseMigrator {
           const placeholders = columns.map((_, idx) => `$${idx + 1}`).join(', ');
 
           try {
+            // Sanitize values: coerce any malformed JSON strings to null
+            // rather than letting a bad value crash the whole migration.
+            // PostgreSQL on Railway may store JSONB as native objects which
+            // pg serialises differently to what Supabase's parser expects.
+            const safeValues = values.map((v) => {
+              if (v !== null && typeof v === 'object' && !Array.isArray(v) && !Buffer.isBuffer(v)) {
+                // pg returns JSONB columns as already-parsed JS objects;
+                // re-serialise so Supabase receives a valid JSON string.
+                try { return JSON.stringify(v); } catch { return null; }
+              }
+              if (typeof v === 'string' && v.startsWith('{') && v.includes(',')) {
+                // Postgres array-literal syntax e.g. {"51","52"} — convert to JSON array
+                try {
+                  const inner = v.slice(1, -1);
+                  const items = inner.split(',').map(s => {
+                    s = s.trim();
+                    if (s.startsWith('"') && s.endsWith('"')) return s.slice(1, -1);
+                    return isNaN(s) ? s : Number(s);
+                  });
+                  return JSON.stringify(items);
+                } catch { return null; }
+              }
+              return v;
+            });
             await this.targetPool.query(
               `INSERT INTO ${tableName} (${columnsList}) VALUES (${placeholders})`,
-              values
+              safeValues
             );
             tableLog.inserted++;
           } catch (err) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import parse from './src/utils/parseSearchUrl.js';
-import { searchAirbnb } from './src/workers/python-executor.js';
+import parse from '../src/utils/parseSearchUrl.js';
+import { searchAirbnb } from '../src/workers/python-executor.js';
 
 function extractPriceAmount(p) {
   if (p == null) return null;

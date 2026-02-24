@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import parse from './src/utils/parseSearchUrl.js';
+import parse from '../src/utils/parseSearchUrl.js';
 import axios from 'axios';
-import { searchAirbnb } from './src/workers/python-executor.js';
+import { searchAirbnb } from '../src/workers/python-executor.js';
 
 (async function main(){
   try {

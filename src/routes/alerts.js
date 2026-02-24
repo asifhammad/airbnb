@@ -8,6 +8,12 @@ import parseSearchUrl from '../utils/parseSearchUrl.js';
 
 const router = express.Router();
 
+function isAirbnbHostname(hostname) {
+  if (!hostname) return false;
+  const normalized = String(hostname).toLowerCase();
+  return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
+}
+
 // Get all alerts for user
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -60,7 +66,8 @@ router.post('/search', authenticateToken, async (req, res) => {
     const alertCheck = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE is_free_trial = true AND is_active = true AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)) as free_trial_count,
-         COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count
+         COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count,
+         COUNT(*) as total_alert_count
        FROM search_alerts 
        WHERE user_id = $1`,
       [req.user.userId]
@@ -72,8 +79,16 @@ router.post('/search', authenticateToken, async (req, res) => {
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
+    const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
 
     // Check limits
+    if (req.user.subscription_tier === 'free' && totalAlerts > 0) {
+      return res.status(403).json({
+        error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
+        upgrade_required: true
+      });
+    }
+
     if (isFreeTrial && freeTrialCount > 0) {
       return res.status(403).json({ 
         error: 'Free users can only have one active alert at a time. Please upgrade to create more alerts.',
@@ -136,21 +151,23 @@ router.post('/url', authenticateToken, async (req, res) => {
       });
     }
 
-    // Parse the URL to extract parameters
+    // Parse the URL and verify it is an Airbnb domain
     let urlParams;
     try {
       urlParams = new URL(search_url);
     } catch (e) {
-      return res.status(400).json({ 
-        error: 'Invalid URL format' 
-      });
+      return res.status(400).json({ error: 'Invalid URL format' });
+    }
+    if (!isAirbnbHostname(urlParams.hostname)) {
+      return res.status(400).json({ error: 'URL must be from airbnb.com' });
     }
 
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE is_free_trial = true AND is_active = true AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)) as free_trial_count,
-         COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count
+         COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count,
+         COUNT(*) as total_alert_count
        FROM search_alerts 
        WHERE user_id = $1`,
       [req.user.userId]
@@ -162,8 +179,16 @@ router.post('/url', authenticateToken, async (req, res) => {
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
+    const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
 
     // Check limits
+    if (req.user.subscription_tier === 'free' && totalAlerts > 0) {
+      return res.status(403).json({
+        error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
+        upgrade_required: true
+      });
+    }
+
     if (isFreeTrial && freeTrialCount > 0) {
       return res.status(403).json({ 
         error: 'Free users can only have one active alert at a time. Please upgrade to create more alerts.',
@@ -260,7 +285,8 @@ router.post('/listing', authenticateToken, async (req, res) => {
     const alertCheck = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE is_free_trial = true AND is_active = true AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)) as free_trial_count,
-         COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count
+         COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count,
+         COUNT(*) as total_alert_count
        FROM search_alerts 
        WHERE user_id = $1`,
       [req.user.userId]
@@ -272,8 +298,16 @@ router.post('/listing', authenticateToken, async (req, res) => {
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
+    const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
 
     // Check limits
+    if (req.user.subscription_tier === 'free' && totalAlerts > 0) {
+      return res.status(403).json({
+        error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
+        upgrade_required: true
+      });
+    }
+
     if (isFreeTrial && freeTrialCount > 0) {
       return res.status(403).json({ 
         error: 'Free users can only have one active alert at a time. Please upgrade to create more alerts.',

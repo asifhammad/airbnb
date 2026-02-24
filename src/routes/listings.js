@@ -78,15 +78,62 @@ router.get('/alert/:alertId', authenticateToken, async (req, res) => {
 // NOTE: keep the specific/live endpoints above the generic DB lookup to
 // avoid Express route collisions (/:listingId would match /details and /search).
 
+// Get price history for a listing within an alert
+router.get('/alert/:alertId/listing/:listingId/price-history', authenticateToken, async (req, res) => {
+  try {
+    const { alertId, listingId } = req.params;
+
+    // Verify the alert belongs to this user
+    const alertCheck = await query(
+      'SELECT id FROM search_alerts WHERE id = $1 AND user_id = $2',
+      [alertId, req.user.userId]
+    );
+    if (alertCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    const result = await query(
+      `SELECT price, recorded_at
+       FROM listing_price_history
+       WHERE listing_id = $1 AND search_alert_id = $2
+       ORDER BY recorded_at ASC`,
+      [listingId, alertId]
+    );
+
+    const history = result.rows;
+    const prices  = history.map(r => Number(r.price));
+    const first   = prices[0]   ?? null;
+    const latest  = prices[prices.length - 1] ?? null;
+    const lowest  = prices.length ? Math.min(...prices) : null;
+    const highest = prices.length ? Math.max(...prices) : null;
+    const change  = (first != null && latest != null) ? +(latest - first).toFixed(2) : null;
+    const changePct = (first != null && first !== 0 && change != null)
+      ? +((change / first) * 100).toFixed(1)
+      : null;
+
+    res.json({
+      history,
+      summary: { first, latest, lowest, highest, change, changePct, dataPoints: history.length },
+    });
+  } catch (error) {
+    console.error('Price history error:', error);
+    res.status(500).json({ error: 'Failed to fetch price history' });
+  }
+});
+
 // Get recent notifications for user
 router.get('/notifications/recent', authenticateToken, async (req, res) => {
   try {
     const result = await query(
-      `SELECT n.*, l.name as listing_name, l.url as listing_url, 
-              sa.location, sa.check_in, sa.check_out
+      `SELECT n.*, l.name as listing_name, l.url as listing_url,
+              sa.location, sa.check_in, sa.check_out,
+              COALESCE(sr.old_price, NULLIF(n.payload->'prices'->>'old_price', '')::numeric) AS old_price,
+              COALESCE(sr.new_price, NULLIF(n.payload->'prices'->>'new_price', '')::numeric) AS new_price
        FROM notifications n
-       LEFT JOIN listings l ON n.listing_id = l.listing_id
-       LEFT JOIN search_alerts sa ON n.search_alert_id = sa.id
+       LEFT JOIN listings l        ON n.listing_id       = l.listing_id
+       LEFT JOIN search_alerts sa  ON n.search_alert_id  = sa.id
+       LEFT JOIN search_results sr ON n.search_alert_id  = sr.search_alert_id
+                                   AND n.listing_id      = sr.listing_id
        WHERE n.user_id = $1
        ORDER BY n.sent_at DESC
        LIMIT 20`,
@@ -238,8 +285,17 @@ router.post('/search', authenticateToken, async (req, res) => {
   }
 });
 
+// Validate listingId is purely numeric before it touches any process or DB query.
+// Airbnb listing IDs are always integers; anything else is either a bug or an attack.
+function validateListingId(req, res, next) {
+  if (!/^\d{1,20}$/.test(req.params.listingId)) {
+    return res.status(400).json({ error: 'Invalid listing ID' });
+  }
+  next();
+}
+
 // Get live listing details (from Python)
-router.get('/details/:listingId', authenticateToken, async (req, res) => {
+router.get('/details/:listingId', authenticateToken, validateListingId, async (req, res) => {
   try {
     const { listingId } = req.params;
     const details = await getListingDetails(listingId);
@@ -251,7 +307,7 @@ router.get('/details/:listingId', authenticateToken, async (req, res) => {
 });
 
 // Get calendar/availability (live)
-router.get('/calendar/:listingId', authenticateToken, async (req, res) => {
+router.get('/calendar/:listingId', authenticateToken, validateListingId, async (req, res) => {
   try {
     const { listingId } = req.params;
     const cal = await getCalendar(listingId);
@@ -263,7 +319,7 @@ router.get('/calendar/:listingId', authenticateToken, async (req, res) => {
 });
 
 // Generic DB-backed listing lookup (kept last so it doesn't shadow other routes)
-router.get('/:listingId', authenticateToken, async (req, res) => {
+router.get('/:listingId', authenticateToken, validateListingId, async (req, res) => {
   try {
     const { listingId } = req.params;
 

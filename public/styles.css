@@ -209,3 +209,56 @@ button.loading::after{content:"";position:absolute;right:10px;top:50%;transform:
   height:1px;background:rgba(16,24,40,0.06);margin:4px 0;
 }
 .logout-btn{color:var(--danger)}
+
+/* Billing summary card on dashboard */
+#billing-summary-card .billing-header{
+  display:flex;align-items:center;gap:12px;margin-bottom:16px;
+}
+#billing-summary-card .plan-badge{
+  display:inline-block;padding:4px 12px;border-radius:999px;
+  font-size:13px;font-weight:700;text-transform:uppercase;
+}
+#billing-summary-card .plan-badge.premium{
+  background:linear-gradient(90deg,#6366f1,#8b5cf6);color:#fff;
+}
+#billing-summary-card .plan-badge.basic{
+  background:rgba(99,102,241,0.12);color:#6366f1;
+}
+#billing-summary-card .plan-name{
+  font-size:18px;font-weight:700;
+}
+#billing-summary-card .billing-details{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:16px;margin-top:12px;
+}
+#billing-summary-card .detail-item{
+  background:var(--muted-bg);padding:12px;border-radius:8px;
+  border:1px solid rgba(16,24,40,0.04);
+}
+#billing-summary-card .detail-label{
+  font-size:12px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:0.5px;margin-bottom:6px;
+}
+#billing-summary-card .detail-value{
+  font-size:15px;font-weight:600;color:var(--text);
+}
+#billing-summary-card .usage-bar{
+  height:8px;background:var(--muted-bg);border-radius:4px;
+  overflow:hidden;margin-top:8px;
+}
+#billing-summary-card .usage-fill{
+  height:100%;background:linear-gradient(90deg,#10b981,#06b6d4);
+  border-radius:4px;transition:width 0.3s ease;
+}
+#billing-summary-card .usage-text{
+  font-size:12px;color:var(--muted);margin-top:4px;
+}
+#billing-summary-card .billing-actions{
+  margin-top:16px;display:flex;gap:8px;
+}
+#billing-summary-card .alert-count{
+  font-size:13px;color:var(--muted);
+}
+#billing-summary-card .alert-count strong{
+  color:var(--text);font-weight:700;
+}

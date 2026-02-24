@@ -3,51 +3,132 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Sign in — Airbnb Alerts</title>
+    <title>Sign in — Alert Buzz</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body class="auth-page">
     <div class="container">
       <header>
-        <h1>Airbnb Alerts — Sign in</h1>
+        <h1>Alert Buzz — Sign in</h1>
       </header>
 
       <main>
-        <section class="card" id="auth-card">
+        <!-- Tabs for Login/Register -->
+        <div style="display:flex;gap:12px;margin-bottom:16px;border-bottom:1px solid rgba(16,24,40,0.1)">
+          <button id="tab-login" class="auth-tab active" style="padding:12px 0;border:none;background:transparent;color:var(--text);cursor:pointer;font-weight:500;border-bottom:2px solid var(--accent);margin-bottom:-1px">Login</button>
+          <button id="tab-register" class="auth-tab" style="padding:12px 0;border:none;background:transparent;color:var(--muted);cursor:pointer;font-weight:500;border-bottom:2px solid transparent">Register</button>
+        </div>
+
+        <!-- Login Form -->
+        <section class="card" id="login-card">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-            <div style="width:48px;height:48px;border-radius:10px;background:linear-gradient(135deg,#FF5A5F,#FF8A80);display:flex;align-items:center;justify-content:center;font-weight:700;color:white">AA</div>
+            <img src="/logo.png" alt="Alert Buzz Logo" style="width:48px;height:48px;border-radius:10px" />
             <div>
               <h2 style="margin:0 0 4px 0">Welcome back</h2>
-              <div class="note">Sign in to your Airbnb Alerts dashboard</div>
+              <div class="note">Sign in to your Alert Buzz dashboard</div>
             </div>
           </div>
 
           <div style="margin-top:8px">
             <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Email</label>
-            <input id="email" placeholder="you@example.com" autocomplete="username" />
-            <div id="email-help" class="note" style="margin-top:6px"></div>
+            <input id="login-email" placeholder="you@example.com" autocomplete="username" />
+            <div id="login-email-help" class="note" style="margin-top:6px"></div>
           </div>
 
           <div style="margin-top:12px">
             <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Password</label>
             <div style="display:flex;gap:8px;align-items:center">
-              <input id="password" placeholder="Choose a strong password" type="password" autocomplete="current-password" style="flex:1" />
-              <button id="toggle-password" class="secondary" type="button">Show</button>
+              <input id="login-password" placeholder="Enter your password" type="password" autocomplete="current-password" style="flex:1" />
+              <button id="toggle-login-password" class="secondary" type="button">Show</button>
             </div>
-            <div id="password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
+            <div id="login-password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
           </div>
 
-          <div class="row buttons" style="margin-top:16px">
-            <button id="btn-register" disabled>Register</button>
-            <button id="btn-login" disabled>Login</button>
+          <button id="btn-login" disabled style="width:100%;margin-top:16px">Login</button>
+
+          <div style="margin-top:12px;text-align:center">
+            <button id="btn-forgot-password" class="secondary" style="width:100%">Forgot password?</button>
           </div>
+
+        </section>
+
+        <!-- Register Form -->
+        <section class="card" id="register-card" style="display:none">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <img src="/logo.png" alt="Alert Buzz Logo" style="width:48px;height:48px;border-radius:10px" />
+            <div>
+              <h2 style="margin:0 0 4px 0">Create account</h2>
+              <div class="note">Join Alert Buzz to get notified about listings</div>
+            </div>
+          </div>
+
+          <div style="margin-top:8px">
+            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Email</label>
+            <input id="register-email" placeholder="you@example.com" autocomplete="email" />
+            <div id="register-email-help" class="note" style="margin-top:6px"></div>
+          </div>
+
+          <div style="margin-top:12px">
+            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Password</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="register-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" style="flex:1" />
+              <button id="toggle-register-password" class="secondary" type="button">Show</button>
+            </div>
+            <div id="register-password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
+          </div>
+
+          <button id="btn-register" disabled style="width:100%;margin-top:16px">Create Account</button>
 
           <p class="note" style="margin-top:12px">By registering you agree to receive email notifications for alerts.</p>
+
+        </section>
+
+        <!-- Forgot Password Form -->
+        <section class="card" id="forgot-password-card" style="display:none">
+          <div style="margin-bottom:16px">
+            <button id="btn-back-to-login" class="secondary" style="margin-bottom:12px">← Back to Login</button>
+            <h2 style="margin:0 0 8px 0">Reset your password</h2>
+            <p class="note" style="margin:0">Enter your email address and we'll send you a password reset link.</p>
+          </div>
+
+          <div style="margin-top:16px">
+            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Email</label>
+            <input id="forgot-email" placeholder="you@example.com" autocomplete="email" />
+            <div id="forgot-email-help" class="note" style="margin-top:6px"></div>
+          </div>
+
+          <button id="btn-send-reset" disabled style="width:100%;margin-top:16px">Send Reset Link</button>
+        </section>
+
+        <!-- Reset Password Form -->
+        <section class="card" id="reset-password-card" style="display:none">
+          <div style="margin-bottom:16px">
+            <button id="btn-back-to-login-2" class="secondary" style="margin-bottom:12px">← Back to Login</button>
+            <h2 style="margin:0 0 8px 0">Create new password</h2>
+            <p class="note" style="margin:0">Enter a new password for your account.</p>
+          </div>
+
+          <div style="margin-top:16px">
+            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">New Password</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="reset-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" style="flex:1" />
+              <button id="toggle-reset-password" class="secondary" type="button">Show</button>
+            </div>
+            <div id="reset-password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
+          </div>
+
+          <div style="margin-top:12px">
+            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Confirm Password</label>
+            <input id="reset-confirm" placeholder="Confirm your password" type="password" autocomplete="new-password" />
+            <div id="reset-confirm-help" class="note" style="margin-top:6px"></div>
+          </div>
+
+          <button id="btn-reset-password" disabled style="width:100%;margin-top:16px">Reset Password</button>
         </section>
       </main>
 
       <footer>
-        <small>Airbnb Alerts — Demo</small>
+        <small>Alert Buzz</small>
       </footer>
     </div>
 
