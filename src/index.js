@@ -295,6 +295,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve auth callback explicitly so we can guarantee iframe-compatible headers
+// even when route rewriting/static middleware order changes.
+app.get(['/auth/callback', '/auth/callback/'], (req, res) => {
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('Content-Security-Policy-Report-Only');
+  // Embedded email/webview flows can be sandboxed; COOP same-origin blocks these.
+  // Keep this relaxed only on the dedicated auth callback endpoint.
+  res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.sendFile(path.join(process.cwd(), 'public', 'auth.html'));
+});
+
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
@@ -445,7 +459,6 @@ if (process.env.NODE_ENV === 'production') {
 app.use((req, res, next) => {
   const cleanToHtml = {
     '/auth': '/auth.html',
-    '/auth/callback': '/auth.html',
     '/settings': '/settings.html',
     '/billing': '/billing.html',
     '/admin': '/admin.html',
