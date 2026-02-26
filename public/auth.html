@@ -7,129 +7,111 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body class="auth-page">
-    <div class="container">
-      <header>
-        <h1>Alert Buzz — Sign in</h1>
-      </header>
+    <div class="auth-shell">
+      <aside class="auth-aside">
+        <div class="auth-brand-pill">
+          <img src="/logo.png" alt="Alert Buzz Logo" class="auth-logo-small" />
+          <span>Alert Buzz</span>
+        </div>
+        <h1>Stay ahead of every listing drop.</h1>
+        <p>
+          Track neighborhoods, monitor price changes, and get fast alerts without refreshing Airbnb all day.
+        </p>
+      </aside>
 
-      <main>
-        <!-- Tabs for Login/Register -->
-        <div style="display:flex;gap:12px;margin-bottom:16px;border-bottom:1px solid rgba(16,24,40,0.1)">
-          <button id="tab-login" class="auth-tab active" style="padding:12px 0;border:none;background:transparent;color:var(--text);cursor:pointer;font-weight:500;border-bottom:2px solid var(--accent);margin-bottom:-1px">Login</button>
-          <button id="tab-register" class="auth-tab" style="padding:12px 0;border:none;background:transparent;color:var(--muted);cursor:pointer;font-weight:500;border-bottom:2px solid transparent">Register</button>
+      <main class="auth-main">
+        <header class="auth-main-header">
+          <div class="auth-heading-wrap">
+            <img src="/logo.png" alt="Alert Buzz Logo" class="auth-logo-large" />
+            <div>
+              <h2>Account Access</h2>
+              <p class="note">Sign in or create an account to continue.</p>
+            </div>
+          </div>
+        </header>
+
+        <div class="auth-tabs">
+          <button id="tab-login" class="auth-tab active">Login</button>
+          <button id="tab-register" class="auth-tab">Register</button>
         </div>
 
-        <!-- Login Form -->
-        <section class="card" id="login-card">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-            <img src="/logo.png" alt="Alert Buzz Logo" style="width:48px;height:48px;border-radius:10px" />
-            <div>
-              <h2 style="margin:0 0 4px 0">Welcome back</h2>
-              <div class="note">Sign in to your Alert Buzz dashboard</div>
-            </div>
-          </div>
-
-          <div style="margin-top:8px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Email</label>
+        <section class="card auth-card" id="login-card">
+          <div class="auth-field">
+            <label>Email</label>
             <input id="login-email" placeholder="you@example.com" autocomplete="username" />
-            <div id="login-email-help" class="note" style="margin-top:6px"></div>
+            <div id="login-email-help" class="note"></div>
           </div>
 
-          <div style="margin-top:12px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Password</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input id="login-password" placeholder="Enter your password" type="password" autocomplete="current-password" style="flex:1" />
+          <div class="auth-field">
+            <label>Password</label>
+            <div class="auth-input-row">
+              <input id="login-password" placeholder="Enter your password" type="password" autocomplete="current-password" />
               <button id="toggle-login-password" class="secondary" type="button">Show</button>
             </div>
-            <div id="login-password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
+            <div id="login-password-help" class="note">At least 8 characters, include letters and numbers.</div>
           </div>
 
-          <button id="btn-login" disabled style="width:100%;margin-top:16px">Login</button>
-
-          <div style="margin-top:12px;text-align:center">
-            <button id="btn-forgot-password" class="secondary" style="width:100%">Forgot password?</button>
-          </div>
-
+          <button id="btn-login" disabled class="auth-submit">Login</button>
+          <button id="btn-forgot-password" class="secondary auth-subtle">Forgot password?</button>
         </section>
 
-        <!-- Register Form -->
-        <section class="card" id="register-card" style="display:none">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-            <img src="/logo.png" alt="Alert Buzz Logo" style="width:48px;height:48px;border-radius:10px" />
-            <div>
-              <h2 style="margin:0 0 4px 0">Create account</h2>
-              <div class="note">Join Alert Buzz to get notified about listings</div>
-            </div>
-          </div>
-
-          <div style="margin-top:8px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Email</label>
+        <section class="card auth-card" id="register-card" style="display:none">
+          <div class="auth-field">
+            <label>Email</label>
             <input id="register-email" placeholder="you@example.com" autocomplete="email" />
-            <div id="register-email-help" class="note" style="margin-top:6px"></div>
+            <div id="register-email-help" class="note"></div>
           </div>
 
-          <div style="margin-top:12px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Password</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input id="register-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" style="flex:1" />
+          <div class="auth-field">
+            <label>Password</label>
+            <div class="auth-input-row">
+              <input id="register-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" />
               <button id="toggle-register-password" class="secondary" type="button">Show</button>
             </div>
-            <div id="register-password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
+            <div id="register-password-help" class="note">At least 8 characters, include letters and numbers.</div>
           </div>
 
-          <button id="btn-register" disabled style="width:100%;margin-top:16px">Create Account</button>
-
-          <p class="note" style="margin-top:12px">By registering you agree to receive email notifications for alerts.</p>
-
+          <button id="btn-register" disabled class="auth-submit">Create Account</button>
+          <p class="note auth-legal">By registering you agree to receive email notifications for alerts.</p>
         </section>
 
-        <!-- Forgot Password Form -->
-        <section class="card" id="forgot-password-card" style="display:none">
-          <div style="margin-bottom:16px">
-            <button id="btn-back-to-login" class="secondary" style="margin-bottom:12px">← Back to Login</button>
-            <h2 style="margin:0 0 8px 0">Reset your password</h2>
-            <p class="note" style="margin:0">Enter your email address and we'll send you a password reset link.</p>
-          </div>
+        <section class="card auth-card" id="forgot-password-card" style="display:none">
+          <button id="btn-back-to-login" class="secondary auth-subtle">Back to Login</button>
+          <h3>Reset your password</h3>
+          <p class="note">Enter your email and we will send a reset link.</p>
 
-          <div style="margin-top:16px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Email</label>
+          <div class="auth-field">
+            <label>Email</label>
             <input id="forgot-email" placeholder="you@example.com" autocomplete="email" />
-            <div id="forgot-email-help" class="note" style="margin-top:6px"></div>
+            <div id="forgot-email-help" class="note"></div>
           </div>
 
-          <button id="btn-send-reset" disabled style="width:100%;margin-top:16px">Send Reset Link</button>
+          <button id="btn-send-reset" disabled class="auth-submit">Send Reset Link</button>
         </section>
 
-        <!-- Reset Password Form -->
-        <section class="card" id="reset-password-card" style="display:none">
-          <div style="margin-bottom:16px">
-            <button id="btn-back-to-login-2" class="secondary" style="margin-bottom:12px">← Back to Login</button>
-            <h2 style="margin:0 0 8px 0">Create new password</h2>
-            <p class="note" style="margin:0">Enter a new password for your account.</p>
-          </div>
+        <section class="card auth-card" id="reset-password-card" style="display:none">
+          <button id="btn-back-to-login-2" class="secondary auth-subtle">Back to Login</button>
+          <h3>Create new password</h3>
+          <p class="note">Enter a secure password for your account.</p>
 
-          <div style="margin-top:16px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">New Password</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input id="reset-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" style="flex:1" />
+          <div class="auth-field">
+            <label>New Password</label>
+            <div class="auth-input-row">
+              <input id="reset-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" />
               <button id="toggle-reset-password" class="secondary" type="button">Show</button>
             </div>
-            <div id="reset-password-help" class="note" style="margin-top:6px">At least 8 characters, include letters and numbers.</div>
+            <div id="reset-password-help" class="note">At least 8 characters, include letters and numbers.</div>
           </div>
 
-          <div style="margin-top:12px">
-            <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">Confirm Password</label>
+          <div class="auth-field">
+            <label>Confirm Password</label>
             <input id="reset-confirm" placeholder="Confirm your password" type="password" autocomplete="new-password" />
-            <div id="reset-confirm-help" class="note" style="margin-top:6px"></div>
+            <div id="reset-confirm-help" class="note"></div>
           </div>
 
-          <button id="btn-reset-password" disabled style="width:100%;margin-top:16px">Reset Password</button>
+          <button id="btn-reset-password" disabled class="auth-submit">Reset Password</button>
         </section>
       </main>
-
-      <footer>
-        <small>Alert Buzz</small>
-      </footer>
     </div>
 
     <div id="message" class="message hidden"></div>
