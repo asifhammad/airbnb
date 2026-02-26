@@ -106,12 +106,57 @@ const blockedExtensions = new Set([
 
 const blockedPathTokens = [
   'wp-config',
+  'wp-json',
   'adminpanel',
   'fullz',
   'carding',
   'send_acc',
   'stored.php',
 ];
+
+const blockedPathPrefixes = [
+  '/wordpress',
+  '/wp-',
+  '/wp/',
+  '/wp-admin',
+  '/wp-content',
+  '/wp-includes',
+  '/cgi-bin',
+  '/.git',
+  '/.svn',
+  '/.hg',
+  '/.vscode',
+  '/laravel',
+  '/phpmyadmin',
+  '/actuator',
+  '/_profiler',
+  '/_wdt',
+  '/__debug__',
+  '/__webpack_dev_server__',
+  '/webpack-dev-server',
+  '/horizon/api',
+  '/telescope',
+  '/server-status',
+  '/server-info',
+];
+
+const blockedExactPaths = new Set([
+  '/env',
+  '/info.php',
+  '/phpinfo.php',
+  '/php_info.php',
+  '/test.php',
+  '/i.php',
+  '/asset-manifest.json',
+]);
+
+const knownClientRoutes = new Set([
+  '/',
+  '/auth',
+  '/settings',
+  '/billing',
+  '/admin',
+]);
 
 const denylistIps = new Set(
   String(process.env.SECURITY_DENYLIST_IPS || '')
@@ -197,8 +242,25 @@ function isSuspiciousProbe(req) {
   const ext = path.extname(pathLower);
 
   if (pathLower.includes('..') || pathLower.includes('%2e%2e') || pathLower.includes('%00')) return true;
+  if (blockedExactPaths.has(pathLower)) return true;
+  if (blockedPathPrefixes.some((prefix) => pathLower.startsWith(prefix))) return true;
   if (blockedExtensions.has(ext)) return true;
   return blockedPathTokens.some((token) => pathLower.includes(token));
+}
+
+function normalizedRoutePath(value) {
+  const p = String(value || '');
+  if (p.length > 1 && p.endsWith('/')) return p.slice(0, -1);
+  return p;
+}
+
+function isLikelyScannerPath(value) {
+  const lower = String(value || '').toLowerCase();
+  const ext = path.extname(lower);
+  if (blockedExtensions.has(ext)) return true;
+  if (blockedExactPaths.has(lower)) return true;
+  if (blockedPathPrefixes.some((prefix) => lower.startsWith(prefix))) return true;
+  return blockedPathTokens.some((token) => lower.includes(token));
 }
 
 // Middleware
@@ -388,12 +450,40 @@ app.use((req, res, next) => {
   next();
 });
 
+// Reject unknown non-API "page" routes instead of falling through to SPA-like behavior.
+app.use((req, res, next) => {
+  if (!(req.method === 'GET' || req.method === 'HEAD')) return next();
+  if (req.path.startsWith('/api/')) return next();
+
+  const normalized = normalizedRoutePath(req.path);
+  const ext = path.extname(normalized);
+  if (ext) return next(); // let static handler try file assets
+
+  if (knownClientRoutes.has(normalized)) return next();
+  return res.status(404).send('Not found');
+});
+
 // Serve static files
 app.use(express.static('public'));
 
 // Request logging
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`);
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - startedAt;
+    const status = res.statusCode;
+    const isApi = req.path.startsWith('/api/');
+    const normalized = normalizedRoutePath(req.path);
+
+    if (isApi || status >= 500 || knownClientRoutes.has(normalized)) {
+      logger.info(`${req.method} ${req.path} ${status} ${ms}ms`);
+      return;
+    }
+
+    if (status >= 400 && isLikelyScannerPath(req.path)) {
+      logger.debug(`${req.method} ${req.path} ${status} ${ms}ms`);
+    }
+  });
   next();
 });
 
@@ -425,6 +515,9 @@ app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {
+  if (!req.path.startsWith('/api/')) {
+    return res.status(404).send('Not found');
+  }
   res.status(404).json({ error: 'Route not found' });
 });
 

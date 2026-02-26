@@ -1,5 +1,6 @@
 const $ = (sel) => document.querySelector(sel);
 const analytics = window.analytics || null;
+let currentUserTier = null;
 
 function track(event, props) {
   try { analytics?.track?.(event, props || {}); } catch (_) { /* no-op */ }
@@ -142,7 +143,9 @@ async function createUrlAlert() {
     $('#alert-search-url').value = '';
   const previewEl = $('#alert-search-preview'); if (previewEl) { previewEl.classList.add('hidden'); previewEl.setAttribute('aria-hidden', 'true'); previewEl.textContent = ''; }
     loadAlerts();
-    try { showAlertCreatedModal(); } catch (e) { /* ignore */ }
+    try {
+      if (currentUserTier !== 'premium') showAlertCreatedModal();
+    } catch (e) { /* ignore */ }
   } catch (err) {
     if (err.upgrade_required) {
       showMessage(err.error, true);
@@ -823,6 +826,7 @@ async function showLoggedInState() {
     const res = await apiRequest('GET', '/api/auth/me');
     if (res && res.user) {
       tier = res.user.subscription_tier || null;
+      currentUserTier = tier;
       identifyUser(res.user.id || res.user.email || 'user', {
         email: res.user.email || null,
         subscription_tier: tier || null,
