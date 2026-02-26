@@ -264,6 +264,14 @@ function normalizeOrigin(value) {
   }
 }
 
+function originHost(value) {
+  try {
+    return new URL(String(value || '').trim()).host.toLowerCase();
+  } catch (_) {
+    return null;
+  }
+}
+
 function ensureCsrfCookie(req, res) {
   if (req.cookies?.csrf_token) return req.cookies.csrf_token;
   const token = crypto.randomBytes(32).toString('hex');
@@ -292,7 +300,16 @@ app.use((req, res, next) => {
 
   const origin = normalizeOrigin(req.headers.origin);
   const referer = normalizeOrigin(req.headers.referer);
-  if ((origin && trustedOrigins.has(origin)) || (referer && trustedOrigins.has(referer))) {
+  const requestHost = String(req.headers.host || '').toLowerCase();
+  const originHostValue = originHost(req.headers.origin);
+  const refererHostValue = originHost(req.headers.referer);
+
+  if (
+    (origin && trustedOrigins.has(origin)) ||
+    (referer && trustedOrigins.has(referer)) ||
+    (originHostValue && requestHost && originHostValue === requestHost) ||
+    (refererHostValue && requestHost && refererHostValue === requestHost)
+  ) {
     return next();
   }
 
