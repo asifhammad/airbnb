@@ -289,6 +289,8 @@ app.use((req, res, next) => {
       : req.path;
   if (normalizedPath === '/auth/callback' || normalizedPath === '/auth/callback.html') {
     res.removeHeader('X-Frame-Options');
+    res.removeHeader('Content-Security-Policy');
+    res.removeHeader('Content-Security-Policy-Report-Only');
   }
   next();
 });
