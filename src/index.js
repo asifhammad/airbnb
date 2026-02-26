@@ -6,6 +6,7 @@ import session from 'express-session';
 import ConnectPgSimple from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import path from 'path';
 import logger from './utils/logger.js';
 import { auditContext } from './utils/auditLog.js';
 import { configurePassport } from './middleware/passport.js';
@@ -27,6 +28,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const sessionSecret = process.env.SESSION_SECRET;
 const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+const isDev = process.env.NODE_ENV === 'development';
 
 if (process.env.NODE_ENV === 'production' && !sessionSecret) {
   throw new Error('SESSION_SECRET must be set in production');
@@ -70,6 +72,128 @@ const cspHosts = buildCspHosts();
 // Stripe signature verification requires the raw Buffer, not a parsed object.
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 
+app.disable('x-powered-by');
+
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => isDev,
+  message: { error: 'Too many requests. Please try again later.' },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => isDev,
+  message: { error: 'API rate limit exceeded. Please try again later.' },
+});
+
+const blockedExtensions = new Set([
+  '.php', '.asp', '.aspx', '.jsp', '.cgi', '.pl', '.env', '.sql', '.ini', '.bak', '.old',
+  '.swp', '.log', '.cfg', '.conf', '.yml', '.yaml', '.pem', '.key',
+]);
+
+const blockedPathTokens = [
+  'wp-config',
+  'adminpanel',
+  'fullz',
+  'carding',
+  'send_acc',
+  'stored.php',
+];
+
+const denylistIps = new Set(
+  String(process.env.SECURITY_DENYLIST_IPS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+const denylistUaSubstrings = String(process.env.SECURITY_DENYLIST_UA || '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+const probeBanThreshold = Number.parseInt(process.env.PROBE_BAN_THRESHOLD || '8', 10);
+const probeBanWindowMs = Number.parseInt(process.env.PROBE_BAN_WINDOW_MS || String(10 * 60 * 1000), 10);
+const probeBanDurationMs = Number.parseInt(process.env.PROBE_BAN_DURATION_MS || String(60 * 60 * 1000), 10);
+const probeTracker = new Map();
+
+function normalizeIp(rawIp) {
+  const ip = String(rawIp || '').trim();
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
+function isDeniedByIpOrUa(req) {
+  const ip = normalizeIp(req.ip);
+  if (denylistIps.has(ip)) return true;
+
+  const ua = String(req.get('user-agent') || '').toLowerCase();
+  return denylistUaSubstrings.some((needle) => ua.includes(needle));
+}
+
+function isTempBanned(ip) {
+  const entry = probeTracker.get(ip);
+  if (!entry) return false;
+  if (!entry.bannedUntil || entry.bannedUntil <= Date.now()) return false;
+  return true;
+}
+
+function noteProbeAndMaybeBan(ip) {
+  const now = Date.now();
+  const entry = probeTracker.get(ip) || { count: 0, firstSeen: now, bannedUntil: 0 };
+
+  if (entry.bannedUntil > now) {
+    probeTracker.set(ip, entry);
+    return { banned: true, newlyBanned: false };
+  }
+
+  if (now - entry.firstSeen > probeBanWindowMs) {
+    entry.count = 0;
+    entry.firstSeen = now;
+  }
+
+  entry.count += 1;
+  let newlyBanned = false;
+  if (entry.count >= probeBanThreshold) {
+    entry.bannedUntil = now + probeBanDurationMs;
+    entry.count = 0;
+    entry.firstSeen = now;
+    newlyBanned = true;
+  }
+
+  probeTracker.set(ip, entry);
+  return { banned: entry.bannedUntil > now, newlyBanned };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of probeTracker.entries()) {
+    const banExpired = !entry.bannedUntil || entry.bannedUntil <= now;
+    const windowExpired = now - entry.firstSeen > probeBanWindowMs;
+    if (banExpired && windowExpired) {
+      probeTracker.delete(ip);
+    }
+  }
+}, 10 * 60 * 1000).unref();
+
+function isSuspiciousProbe(req) {
+  if (!(req.method === 'GET' || req.method === 'HEAD')) return false;
+  if (req.path.startsWith('/api/')) return false;
+
+  const rawPath = String(req.path || '');
+  const pathLower = rawPath.toLowerCase();
+  const ext = path.extname(pathLower);
+
+  if (pathLower.includes('..') || pathLower.includes('%2e%2e') || pathLower.includes('%00')) return true;
+  if (blockedExtensions.has(ext)) return true;
+  return blockedPathTokens.some((token) => pathLower.includes(token));
+}
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -91,8 +215,34 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(globalLimiter);
+app.use('/api', apiLimiter);
+
+app.use((req, res, next) => {
+  const ip = normalizeIp(req.ip);
+
+  if (isDeniedByIpOrUa(req)) {
+    logger.warn(`Blocked denylisted client: ${req.method} ${req.path} ip=${ip}`);
+    return res.status(403).send('Forbidden');
+  }
+
+  if (isTempBanned(ip)) {
+    logger.warn(`Blocked temp-banned client: ${req.method} ${req.path} ip=${ip}`);
+    return res.status(403).send('Forbidden');
+  }
+
+  if (!isSuspiciousProbe(req)) return next();
+
+  const banState = noteProbeAndMaybeBan(ip);
+  if (banState.newlyBanned) {
+    logger.warn(`Temporarily banned IP for repeated probes: ip=${ip}`);
+  }
+  logger.warn(`Blocked suspicious probe: ${req.method} ${req.path} ip=${ip}`);
+  return res.status(404).send('Not found');
+});
+
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 app.use(cookieParser());
 
 // Attach audit context to all requests
