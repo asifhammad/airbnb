@@ -411,6 +411,23 @@ router.post('/register', registerLimiter, registerValidationRules, handleValidat
 
     if (!requireSupabaseConfig(res)) return;
 
+    const existingLocalRes = await query(
+      'SELECT id FROM users WHERE email = $1 LIMIT 1',
+      [email]
+    );
+    if (existingLocalRes.rows.length > 0) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    // Prevent duplicate registrations for accounts that exist in Supabase
+    // but may not be linked in local DB yet.
+    if (SUPABASE_SECRET_KEY) {
+      const existingSupabaseUserId = await findSupabaseUserIdByEmail(email);
+      if (existingSupabaseUserId) {
+        return res.status(409).json({ error: 'User already exists' });
+      }
+    }
+
     let supabaseSignup;
     try {
       // Triggers Dreamlit workflow: supabase.auth.signUp()
@@ -482,9 +499,6 @@ router.post('/register', registerLimiter, registerValidationRules, handleValidat
       passwordHash: null,
     });
 
-    // Generate access and refresh tokens
-    const tokens = await generateTokens(user);
-
     // Log successful registration
     await auditAction(req, 'REGISTER', 'user', user.id, {
       email: user.email
@@ -502,6 +516,9 @@ router.post('/register', registerLimiter, registerValidationRules, handleValidat
         requires_email_confirmation: true
       });
     }
+
+    // Generate access and refresh tokens only when Supabase session is present.
+    const tokens = await generateTokens(user);
 
     res.cookie(ACCESS_COOKIE,  tokens.accessToken,  cookieOpts(ACCESS_MAX_AGE));
     res.cookie(REFRESH_COOKIE, tokens.refreshToken, cookieOpts(REFRESH_MAX_AGE));
