@@ -7,6 +7,7 @@ import ConnectPgSimple from 'connect-pg-simple';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 import logger from './utils/logger.js';
 import { auditContext } from './utils/auditLog.js';
 import { configurePassport } from './middleware/passport.js';
@@ -28,6 +29,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const sessionSecret = process.env.SESSION_SECRET;
 const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${PORT}`;
 const isDev = process.env.NODE_ENV === 'development';
 
 if (process.env.NODE_ENV === 'production' && !sessionSecret) {
@@ -39,13 +42,14 @@ function resolveTrustProxy() {
   if (process.env.TRUST_PROXY !== undefined) {
     const raw = String(process.env.TRUST_PROXY).trim().toLowerCase();
     if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
-    if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return 1;
+    if (raw === 'true' || raw === 'on' || raw === 'yes') return 1;
     const asNum = Number.parseInt(raw, 10);
-    return Number.isFinite(asNum) ? asNum : 1;
+    if (Number.isFinite(asNum) && asNum >= 1) return asNum;
+    return false;
   }
 
-  // Railway/reverse proxy setups send X-Forwarded-* headers.
-  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL) return 1;
+  // In production, require explicit TRUST_PROXY to avoid accidental spoofable configs.
+  if (process.env.NODE_ENV === 'production') return false;
 
   // Default to off for local/non-proxy environments.
   return false;
@@ -53,6 +57,9 @@ function resolveTrustProxy() {
 
 const trustProxy = resolveTrustProxy();
 if (trustProxy !== false) app.set('trust proxy', trustProxy);
+if (process.env.NODE_ENV === 'production' && trustProxy === false) {
+  logger.warn('TRUST_PROXY is disabled in production. Set TRUST_PROXY=1 (or specific hop count) when behind a trusted reverse proxy.');
+}
 
 function buildCspHosts() {
   const hosts = new Set(['https://us.i.posthog.com', 'https://eu.i.posthog.com']);
@@ -245,6 +252,59 @@ app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 app.use(cookieParser());
 
+const trustedOrigins = new Set([FRONTEND_URL, API_BASE_URL]);
+const csrfSafeMethods = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function normalizeOrigin(value) {
+  try {
+    const u = new URL(String(value || '').trim());
+    return `${u.protocol}//${u.host}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+function ensureCsrfCookie(req, res) {
+  if (req.cookies?.csrf_token) return req.cookies.csrf_token;
+  const token = crypto.randomBytes(32).toString('hex');
+  res.cookie('csrf_token', token, {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: 24 * 60 * 60 * 1000,
+  });
+  return token;
+}
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+
+  // Ensure browser clients have a CSRF token cookie available.
+  if (csrfSafeMethods.has(req.method)) {
+    ensureCsrfCookie(req, res);
+    return next();
+  }
+
+  // Non-browser/API clients using bearer tokens are not CSRF-vulnerable.
+  const hasBearer = req.headers.authorization?.startsWith('Bearer ');
+  if (hasBearer) return next();
+
+  const origin = normalizeOrigin(req.headers.origin);
+  const referer = normalizeOrigin(req.headers.referer);
+  if ((origin && trustedOrigins.has(origin)) || (referer && trustedOrigins.has(referer))) {
+    return next();
+  }
+
+  const cookieToken = req.cookies?.csrf_token;
+  const headerToken = req.headers['x-csrf-token'];
+  if (cookieToken && headerToken && cookieToken === headerToken) {
+    return next();
+  }
+
+  return res.status(403).json({ error: 'CSRF validation failed' });
+});
+
 // Attach audit context to all requests
 app.use(auditContext());
 
@@ -278,9 +338,8 @@ app.use(passport.session());
 // Enforce HTTPS in production
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
-    // Check if connection is already HTTPS or if it's being proxied through HTTPS
-    // x-forwarded-proto is set by Railway/reverse proxies
-    if (req.header('x-forwarded-proto') !== 'https' && !req.secure) {
+    // req.secure respects Express trust proxy settings; avoid trusting raw headers directly.
+    if (!req.secure) {
       return res.redirect(301, `https://${req.header('host')}${req.url}`);
     }
     next();
@@ -326,7 +385,6 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV 
   });
 });
 
@@ -356,9 +414,10 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
   logger.error('Error:', err);
+  const isProduction = process.env.NODE_ENV === 'production';
   res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    error: isProduction ? 'Internal server error' : (err.message || 'Internal server error'),
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 });
 

@@ -216,6 +216,42 @@ const registerLimiter = rateLimit({
   skip: (req, res) => process.env.NODE_ENV === 'development',
 });
 
+const magicLinkLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many magic link requests. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'development',
+});
+
+const changeEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: 'Too many email change attempts. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'development',
+});
+
+const reauthenticateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many reauthentication attempts. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'development',
+});
+
+const inviteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many invite attempts. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'development',
+});
+
 // Input validation rules
 const registerValidationRules = [
   body('email')
@@ -1016,7 +1052,7 @@ const magicLinkValidation = [
     .withMessage('Please provide a valid email address'),
 ];
 
-router.post('/magic-link', magicLinkValidation, handleValidationErrors, async (req, res) => {
+router.post('/magic-link', magicLinkLimiter, magicLinkValidation, handleValidationErrors, async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email);
     if (!requireSupabaseConfig(res)) return;
@@ -1055,7 +1091,7 @@ const changeEmailValidation = [
     .withMessage('Please provide a valid email address'),
 ];
 
-router.post('/change-email', authenticateToken, changeEmailValidation, handleValidationErrors, async (req, res) => {
+router.post('/change-email', authenticateToken, changeEmailLimiter, changeEmailValidation, handleValidationErrors, async (req, res) => {
   try {
     const newEmail = normalizeEmail(req.body?.newEmail);
     const userId = req.user.userId;
@@ -1103,7 +1139,7 @@ const reauthenticateValidation = [
     .withMessage('Password is required'),
 ];
 
-router.post('/reauthenticate', authenticateToken, reauthenticateValidation, handleValidationErrors, async (req, res) => {
+router.post('/reauthenticate', authenticateToken, reauthenticateLimiter, reauthenticateValidation, handleValidationErrors, async (req, res) => {
   try {
     const { password } = req.body;
     const userId = req.user.userId;
@@ -1137,7 +1173,7 @@ const inviteValidation = [
     .withMessage('Please provide a valid email address'),
 ];
 
-router.post('/invite', inviteValidation, handleValidationErrors, async (req, res) => {
+router.post('/invite', inviteLimiter, inviteValidation, handleValidationErrors, async (req, res) => {
   try {
     const adminSecret = process.env.ADMIN_SECRET;
     if (!adminSecret || req.headers['x-admin-secret'] !== adminSecret) {

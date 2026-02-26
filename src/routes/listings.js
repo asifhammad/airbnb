@@ -291,7 +291,7 @@ router.post('/search', authenticateToken, async (req, res) => {
     res.json({ results: pageResults, total: totalFiltered, page, pageSize });
   } catch (error) {
     console.error('Search API error:', error);
-    res.status(500).json({ error: 'Search failed', details: error.message });
+    res.status(500).json({ error: 'Search failed' });
   }
 });
 
@@ -312,7 +312,7 @@ router.get('/details/:listingId', authenticateToken, validateListingId, async (r
     res.json({ listing: details });
   } catch (error) {
     console.error('Get listing details error:', error);
-    res.status(500).json({ error: 'Failed to fetch listing details', details: error.message });
+    res.status(500).json({ error: 'Failed to fetch listing details' });
   }
 });
 
@@ -324,7 +324,7 @@ router.get('/calendar/:listingId', authenticateToken, validateListingId, async (
     res.json({ calendar: cal });
   } catch (error) {
     console.error('Get calendar error:', error);
-    res.status(500).json({ error: 'Failed to fetch calendar', details: error.message });
+    res.status(500).json({ error: 'Failed to fetch calendar' });
   }
 });
 
