@@ -109,6 +109,7 @@ function getRecoveryContext() {
   const type = search.get('type') || hash.get('type') || '';
   const legacyResetToken = search.get('reset_token');
   const accessToken = hash.get('access_token') || search.get('access_token');
+  const isCallbackPath = /^\/auth\/callback\/?$/.test(window.location.pathname || '');
   const hasRecoveryIntent = Boolean(
     legacyResetToken ||
     type === 'recovery' ||
@@ -117,7 +118,11 @@ function getRecoveryContext() {
   );
   const hasSignupConfirmIntent = Boolean(
     type === 'signup' ||
-    (accessToken && type === 'signup')
+    (accessToken && type === 'signup') ||
+    // Some providers/openers strip or omit `type` on callback links.
+    // If we are on the dedicated callback path with an access token and
+    // no recovery intent, treat it as signup/confirm success.
+    (isCallbackPath && accessToken && !hasRecoveryIntent)
   );
   return { hasRecoveryIntent, hasSignupConfirmIntent, type, legacyResetToken, accessToken };
 }

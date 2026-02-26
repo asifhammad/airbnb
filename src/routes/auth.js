@@ -175,6 +175,19 @@ function isSupabaseInvalidCredentials(err) {
   return err?.status === 400 || text.includes('invalid login credentials') || text.includes('invalid credentials');
 }
 
+function isSupabaseEmailNotConfirmed(err) {
+  const text = `${err?.message || ''}`.toLowerCase();
+  return text.includes('email not confirmed') || text.includes('email_not_confirmed');
+}
+
+function isSupabaseUserEmailConfirmed(user) {
+  if (!user) return false;
+  if (user.email_confirmed_at || user.confirmed_at) return true;
+  if (user.email_confirmed === true) return true;
+  if (user.user_metadata?.email_verified === true) return true;
+  return false;
+}
+
 function maskEmailForLogs(email) {
   const normalized = normalizeEmail(email);
   const at = normalized.indexOf('@');
@@ -532,6 +545,16 @@ router.post('/login', loginLimiter, loginValidationRules, handleValidationErrors
         body: { email, password },
       });
     } catch (err) {
+      if (isSupabaseEmailNotConfirmed(err)) {
+        if (localUser) {
+          await auditAction(req, 'LOGIN', 'user', localUser.id, {
+            success: false,
+            reason: 'Email not confirmed'
+          }).catch(() => {});
+        }
+        return res.status(403).json({ error: 'Please confirm your email before logging in' });
+      }
+
       // Legacy fallback: if this is an old local-only account, migrate it into Supabase.
       if (localUser?.password_hash && isSupabaseInvalidCredentials(err)) {
         const validLegacyPassword = await bcrypt.compare(password, localUser.password_hash);
@@ -564,6 +587,15 @@ router.post('/login', loginLimiter, loginValidationRules, handleValidationErrors
 
     const supabaseUserId = supabaseSession?.user?.id;
     if (!supabaseUserId) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!isSupabaseUserEmailConfirmed(supabaseSession?.user)) {
+      if (localUser) {
+        await auditAction(req, 'LOGIN', 'user', localUser.id, {
+          success: false,
+          reason: 'Email not confirmed'
+        }).catch(() => {});
+      }
+      return res.status(403).json({ error: 'Please confirm your email before logging in' });
+    }
 
     const user = await ensureLocalUserFromSupabase({
       email,
