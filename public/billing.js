@@ -96,8 +96,9 @@ function renderPlanSummary(res) {
   if (!el) return;
 
   const sub  = res.subscription;
-  const tier = sub?.plan || 'free';
+  const tier = sub?.plan || res.subscription_tier || 'free';
   const status = sub?.status || 'none';
+  const hasBillingAccount = Boolean(res?.has_billing_account);
 
   const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
   const badgeClass = tier === 'premium' ? 'premium' : tier === 'basic' ? 'basic' : 'free';
@@ -105,6 +106,11 @@ function renderPlanSummary(res) {
   let detail = '';
   if (!sub || tier === 'free') {
     detail = 'No active subscription — upgrade to start monitoring listings.';
+    if (tier !== 'free') {
+      detail = hasBillingAccount
+        ? 'No active subscription — use Manage billing to resume or switch plans.'
+        : 'Access tier is set, but no billing account is linked (test/manual mode).';
+    }
   } else if (status === 'past_due') {
     detail = '⚠️ Payment past due — please update your billing details.';
   } else if (status === 'canceled') {
@@ -118,6 +124,12 @@ function renderPlanSummary(res) {
   }
 
   el.innerHTML = `<span class="tier-badge ${badgeClass}">${tierLabel}</span>${detail}`;
+
+  const manageBtn = $('#btn-manage-billing');
+  if (manageBtn) {
+    manageBtn.disabled = !hasBillingAccount;
+    manageBtn.title = hasBillingAccount ? '' : 'No Stripe billing account is linked for this user.';
+  }
 }
 
 function renderPlanCards(currentPlanKey) {
@@ -163,6 +175,10 @@ async function handleUpgradeClick() {
   if (sub?.plan && sub?.interval) {
     currentKey = sub.plan + '_' + sub.interval + 'ly'; // e.g. basic_monthly
     if (sub.interval === 'year') currentKey = sub.plan + '_yearly';
+  } else {
+    const tier = _currentSubscription?.subscription_tier;
+    if (tier === 'basic') currentKey = 'basic_monthly';
+    if (tier === 'premium') currentKey = 'premium_monthly';
   }
   renderPlanCards(currentKey);
 }

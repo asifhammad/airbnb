@@ -21,9 +21,15 @@ router.get('/', authenticateToken, async (req, res) => {
       `SELECT id, alert_type, location, check_in, check_out, 
               price_min, price_max, guests, listing_id, listing_url,
               search_url, url_params,
-              is_active, last_checked, last_notified, notification_count,
+              is_active, last_checked, last_notified,
+              (
+                SELECT COUNT(*)
+                FROM notifications n
+                WHERE n.search_alert_id = sa.id
+                  AND n.user_id = sa.user_id
+              ) AS notification_count,
               created_at, is_free_trial, expires_at
-       FROM search_alerts 
+       FROM search_alerts sa
        WHERE user_id = $1 
        ORDER BY created_at DESC`,
       [req.user.userId]

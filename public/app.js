@@ -295,11 +295,10 @@ function renderAlerts(alerts) {
     // Show expiration for free trial alerts
     let expirationInfo = '';
     if (a.is_free_trial && a.expires_at) {
-      const expiresDate = new Date(a.expires_at);
-      const now = new Date();
-      const hoursLeft = Math.max(0, Math.floor((expiresDate - now) / (1000 * 60 * 60)));
-      // show running frequency for free/basic users instead of the literal "Free trial" label
-      expirationInfo = `<span class="badge free-trial">Running 1x per day</span>`;
+      // Show run-frequency hint only when the alert is active.
+      expirationInfo = isActive
+        ? `<span class="badge free-trial">Running 1x per day</span>`
+        : '';
     }
     
     const title = escapeHtml(getAlertTitle(a));
@@ -804,6 +803,8 @@ async function loadAlerts() {
     const alerts = Array.isArray(res?.alerts) ? res.alerts : (Array.isArray(res) ? res : []);
     renderAlerts(alerts);
     document.getElementById('alerts-card').classList.remove('hidden');
+    // Keep notifications feed synchronized with alert counters.
+    loadNotifications();
   } catch (err) {
     console.error('Failed to load alerts:', err);
     showMessage('Failed to load alerts — are you logged in?', true);

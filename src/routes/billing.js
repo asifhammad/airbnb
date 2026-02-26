@@ -203,6 +203,7 @@ router.get('/subscription', authenticateToken, async (req, res) => {
 
     res.json({
       subscription_tier: user.subscription_tier,
+      has_billing_account: Boolean(user.stripe_customer_id),
       subscription: sub,
       plans: PLANS,
     });
