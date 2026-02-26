@@ -153,6 +153,7 @@ const blockedExactPaths = new Set([
 const knownClientRoutes = new Set([
   '/',
   '/auth',
+  '/auth/callback',
   '/settings',
   '/billing',
   '/admin',
@@ -278,6 +279,19 @@ app.use(helmet({
     },
   },
 }));
+
+// Allow email auth callback page to render in embedded email/webview containers.
+// Keep frame protection for all other routes.
+app.use((req, res, next) => {
+  const normalizedPath =
+    req.path.length > 1 && req.path.endsWith('/')
+      ? req.path.slice(0, -1)
+      : req.path;
+  if (normalizedPath === '/auth/callback' || normalizedPath === '/auth/callback.html') {
+    res.removeHeader('X-Frame-Options');
+  }
+  next();
+});
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -429,6 +443,7 @@ if (process.env.NODE_ENV === 'production') {
 app.use((req, res, next) => {
   const cleanToHtml = {
     '/auth': '/auth.html',
+    '/auth/callback': '/auth.html',
     '/settings': '/settings.html',
     '/billing': '/billing.html',
     '/admin': '/admin.html',

@@ -401,7 +401,7 @@ router.post('/register', registerLimiter, registerValidationRules, handleValidat
     let supabaseSignup;
     try {
       // Triggers Dreamlit workflow: supabase.auth.signUp()
-      const signupRedirectTo = `${FRONTEND_BASE_URL}/auth`;
+      const signupRedirectTo = `${FRONTEND_BASE_URL}/auth/callback`;
       const signupPath = `/auth/v1/signup?redirect_to=${encodeURIComponent(signupRedirectTo)}`;
       supabaseSignup = await supabaseAuthRequest(signupPath, {
         method: 'POST',
@@ -748,7 +748,7 @@ router.post('/forgot-password', forgotPasswordLimiter, forgotPasswordValidation,
     }
 
     // Triggers Dreamlit workflow: supabase.auth.resetPasswordForEmail()
-    const forgotRedirectTo = `${FRONTEND_BASE_URL}/auth`;
+    const forgotRedirectTo = `${FRONTEND_BASE_URL}/auth/callback`;
     const recoverPath = `/auth/v1/recover?redirect_to=${encodeURIComponent(forgotRedirectTo)}`;
     try {
       await supabaseAuthRequest(recoverPath, {
