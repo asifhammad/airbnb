@@ -396,12 +396,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#btn-back-to-login-2')?.addEventListener('click', (e) => { e.preventDefault(); switchToForm('auth'); });
 
-  const googleAuth = () => {
-    window.location.href = '/api/auth/google';
-  };
-  $('#btn-google-login')?.addEventListener('click', googleAuth);
-  $('#btn-google-signup')?.addEventListener('click', googleAuth);
-
   // ── Init ───────────────────────────────────────────────────────────────────
   const recovery = getRecoveryContext();
   if (recovery.hasRecoveryIntent) {
