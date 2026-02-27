@@ -53,8 +53,11 @@ async function apiRequest(method, path, body) {
   let json = await res.json().catch(() => ({}));
   if (res.ok) return json;
 
-  // On 401 try a silent token refresh then replay the original request once
-  if (res.status === 401) {
+  // On auth expiry try a silent token refresh then replay the original request once
+  const authExpired =
+    res.status === 401 ||
+    (res.status === 403 && /invalid or expired token/i.test(String(json?.error || '')));
+  if (authExpired) {
     const refreshed = await fetch('/api/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -135,7 +138,7 @@ async function createUrlAlert() {
     
     // Show appropriate message based on alert type
     if (res.is_free_trial) {
-      showMessage('Free alert created! This alert will expire in 24 hours. Upgrade to create permanent alerts.');
+      showMessage('Free alert created! This alert will expire in 7 days. Upgrade to create permanent alerts.');
     } else {
       showMessage(res.message || 'Alert saved!');
     }
@@ -286,7 +289,7 @@ function getAlertTitle(a) {
 function renderAlerts(alerts) {
   const container = $('#alerts-list');
   if (!alerts || alerts.length === 0) {
-    container.innerHTML = '<i>No alerts yet</i>';
+    container.textContent = 'No alerts yet';
     return;
   }
 
@@ -294,6 +297,7 @@ function renderAlerts(alerts) {
   alerts.forEach((a) => {
     const div = document.createElement('div');
     div.className = 'alert-item';
+    const isActive = a.is_active !== false;
     
     // Show expiration for free trial alerts
     let expirationInfo = '';
@@ -305,7 +309,6 @@ function renderAlerts(alerts) {
     }
     
     const title = escapeHtml(getAlertTitle(a));
-    const isActive = a.is_active !== false;
     const typeLabel = escapeHtml(a.alert_type === 'listing' ? 'Listing alert' : 'Search alert');
     const statusBadge = `<span class="badge ${isActive ? '' : 'free-trial'}">${isActive ? 'Active' : 'Paused'}</span>`;
     const checkMeta = escapeHtml(a.last_checked ? `Last checked ${new Date(a.last_checked).toLocaleString()}` : 'Not checked yet');
@@ -744,7 +747,7 @@ async function loadNotifications() {
     const res = await apiRequest('GET', '/api/listings/notifications/recent');
     const container = $('#notifications-list');
     if (!res.notifications || res.notifications.length === 0) {
-      container.innerHTML = '<i>No notifications yet</i>';
+      container.textContent = 'No notifications yet';
       return;
     }
     track('notifications_loaded', { count: res.notifications.length });
@@ -810,7 +813,7 @@ async function loadAlerts() {
     loadNotifications();
   } catch (err) {
     console.error('Failed to load alerts:', err);
-    showMessage('Failed to load alerts — are you logged in?', true);
+    showMessage('Failed to load alerts. Please try again.', true);
   }
 }
 
@@ -989,6 +992,16 @@ async function ensureCanCreateSearchAlert() {
     ]);
     const tier = meRes?.user?.subscription_tier;
     if (tier === 'premium') return true;
+    if (tier === 'free') {
+      const createdAt = meRes?.user?.created_at ? new Date(meRes.user.created_at).getTime() : null;
+      if (createdAt && !Number.isNaN(createdAt)) {
+        const trialEndsAt = createdAt + (7 * 24 * 60 * 60 * 1000);
+        if (Date.now() > trialEndsAt) {
+          showLimitModal();
+          return false;
+        }
+      }
+    }
     const alerts = alertsRes.alerts || [];
     if (tier === 'free') {
       const totalSearchCount = alerts.filter(a => a.alert_type === 'search').length;

@@ -7,11 +7,26 @@ import { getListingDetails } from '../workers/python-executor.js';
 import parseSearchUrl from '../utils/parseSearchUrl.js';
 
 const router = express.Router();
+const FREE_TRIAL_DURATION_DAYS = 7;
 
 function isAirbnbHostname(hostname) {
   if (!hostname) return false;
   const normalized = String(hostname).toLowerCase();
   return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
+}
+
+async function isWithinFreeTrialWindow(userId) {
+  const result = await query(
+    `SELECT created_at
+     FROM users
+     WHERE id = $1
+     LIMIT 1`,
+    [userId]
+  );
+  const createdAt = result.rows[0]?.created_at;
+  if (!createdAt) return false;
+  const trialEnd = new Date(createdAt).getTime() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000;
+  return Date.now() <= trialEnd;
 }
 
 // Get all alerts for user
@@ -37,6 +52,28 @@ router.get('/', authenticateToken, async (req, res) => {
 
     res.json({ alerts: result.rows });
   } catch (error) {
+    // Backward-compatible fallback for older DB schemas missing optional columns.
+    if (error?.code === '42703') {
+      try {
+        const fallback = await query(
+          `SELECT id, alert_type, location, check_in, check_out,
+                  price_min, price_max, guests, listing_id, listing_url,
+                  is_active, last_checked,
+                  NULL::timestamp AS last_notified,
+                  0::integer AS notification_count,
+                  created_at, is_free_trial, expires_at,
+                  NULL::text AS search_url,
+                  NULL::jsonb AS url_params
+           FROM search_alerts
+           WHERE user_id = $1
+           ORDER BY created_at DESC`,
+          [req.user.userId]
+        );
+        return res.json({ alerts: fallback.rows });
+      } catch (fallbackError) {
+        console.error('Get alerts fallback error:', fallbackError);
+      }
+    }
     console.error('Get alerts error:', error);
     res.status(500).json({ error: 'Failed to fetch alerts' });
   }
@@ -68,6 +105,16 @@ router.post('/search', authenticateToken, async (req, res) => {
       });
     }
 
+    if (req.user.subscription_tier === 'free') {
+      const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
+      if (!withinTrialWindow) {
+        return res.status(403).json({
+          error: `Your ${FREE_TRIAL_DURATION_DAYS}-day free trial has ended. Upgrade to create alerts.`,
+          upgrade_required: true
+        });
+      }
+    }
+
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
@@ -81,7 +128,7 @@ router.post('/search', authenticateToken, async (req, res) => {
     
     const maxAlerts = req.user.subscription_tier === 'premium' ? 10 : 1;
     const isFreeTrial = req.user.subscription_tier === 'free' || req.user.subscription_tier === 'basic';
-    const expiresAt = isFreeTrial ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null; // 24 hours from now
+    const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
@@ -131,7 +178,7 @@ router.post('/search', authenticateToken, async (req, res) => {
     });
 
     const message = isFreeTrial 
-      ? 'Free alert created! This alert will expire in 24 hours. Upgrade to create permanent alerts.'
+      ? `Free alert created! This alert will expire in ${FREE_TRIAL_DURATION_DAYS} days. Upgrade to create permanent alerts.`
       : 'Alert created successfully';
 
     res.status(201).json({
@@ -168,6 +215,16 @@ router.post('/url', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'URL must be from airbnb.com' });
     }
 
+    if (req.user.subscription_tier === 'free') {
+      const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
+      if (!withinTrialWindow) {
+        return res.status(403).json({
+          error: `Your ${FREE_TRIAL_DURATION_DAYS}-day free trial has ended. Upgrade to create alerts.`,
+          upgrade_required: true
+        });
+      }
+    }
+
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
@@ -181,7 +238,7 @@ router.post('/url', authenticateToken, async (req, res) => {
     
     const maxAlerts = req.user.subscription_tier === 'premium' ? 10 : 1;
     const isFreeTrial = req.user.subscription_tier === 'free' || req.user.subscription_tier === 'basic';
-    const expiresAt = isFreeTrial ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null; // 24 hours from now
+    const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
@@ -247,7 +304,7 @@ router.post('/url', authenticateToken, async (req, res) => {
     });
 
     const message = isFreeTrial 
-      ? 'Free alert created! This alert will expire in 24 hours. Upgrade to create permanent alerts.'
+      ? `Free alert created! This alert will expire in ${FREE_TRIAL_DURATION_DAYS} days. Upgrade to create permanent alerts.`
       : 'Alert created successfully';
 
     res.status(201).json({
@@ -287,6 +344,16 @@ router.post('/listing', authenticateToken, async (req, res) => {
       });
     }
 
+    if (req.user.subscription_tier === 'free') {
+      const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
+      if (!withinTrialWindow) {
+        return res.status(403).json({
+          error: `Your ${FREE_TRIAL_DURATION_DAYS}-day free trial has ended. Upgrade to create alerts.`,
+          upgrade_required: true
+        });
+      }
+    }
+
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
@@ -300,7 +367,7 @@ router.post('/listing', authenticateToken, async (req, res) => {
     
     const maxAlerts = req.user.subscription_tier === 'premium' ? 10 : 1;
     const isFreeTrial = req.user.subscription_tier === 'free' || req.user.subscription_tier === 'basic';
-    const expiresAt = isFreeTrial ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null; // 24 hours from now
+    const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
@@ -357,7 +424,7 @@ router.post('/listing', authenticateToken, async (req, res) => {
     });
 
     const message = isFreeTrial 
-      ? 'Free alert created! This alert will expire in 24 hours. Upgrade to create permanent alerts.'
+      ? `Free alert created! This alert will expire in ${FREE_TRIAL_DURATION_DAYS} days. Upgrade to create permanent alerts.`
       : 'Listing alert created successfully';
 
     res.status(201).json({

@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Alert Buzz</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -22,7 +23,9 @@
             </button>
             <div id="user-dropdown" class="user-dropdown hidden">
               <a href="/settings" class="dropdown-item">Settings</a>
-              <a href="/billing" class="dropdown-item">Plan</a>
+              <a href="/billing" class="dropdown-item">My plan</a>
+              <a href="https://www.alertbuzz.io/#pricing" class="dropdown-item" target="_blank" rel="noopener noreferrer">Pricing</a>
+              <a href="https://tally.so/r/kdY5oR" class="dropdown-item" target="_blank" rel="noopener noreferrer">Get help</a>
               <div class="dropdown-divider"></div>
               <button id="btn-logout" class="dropdown-item logout-btn">Logout</button>
             </div>
@@ -38,7 +41,7 @@
 
           <!-- Free user notice -->
           <div id="free-trial-notice" style="background:linear-gradient(90deg,#f59e0b,#ef4444);color:white;padding:12px;border-radius:8px;margin-bottom:16px;font-size:14px">
-            <strong>Free Trial:</strong> You can create 1 alert that lasts 24 hours. Upgrade for unlimited alerts and real-time notifications.
+            <strong>Free Trial:</strong> You can create 1 alert that lasts 7 days. Upgrade for unlimited alerts and real-time notifications.
           </div>
 
           <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
@@ -128,11 +131,10 @@
           <div class="modal-backdrop" id="alert-created-backdrop"></div>
           <div class="modal-content" style="max-width:520px">
             <button id="alert-created-close" class="modal-close">×</button>
-            <h2 style="margin-top:0">Your alert was set</h2>
-            <p style="color:var(--muted)">Check your inbox for a confirmation email (also check your spam folder).</p>
+            <h2 style="margin-top:0">Your search alert has been set! 🙌</h2>
             <p style="color:var(--muted)">We'll email you daily at 11am EST only if there are newly available listings (e.g. cancellations, price drops, or new listings).</p>
             <p style="margin-top:8px;font-weight:700">Want instant alerts when listings become available throughout the day, so you can book before others?</p>
-            <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:14px">
+            <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
               <button id="btn-upgrade-now" class="primary">Upgrade to Premium</button>
               <button id="btn-alert-created-notnow" class="secondary">Not now</button>
             </div>
@@ -146,7 +148,7 @@
             <button id="limit-close" class="modal-close">×</button>
             <h2 style="margin-top:0">Upgrade to add more searches</h2>
             <p style="color:var(--muted)">Free & Basic users can create only 1 active search alert. Upgrade to Premium to create multiple searches and receive instant notifications.</p>
-            <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:14px">
+            <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
               <button id="btn-limit-upgrade" class="primary">Upgrade to Premium</button>
               <button id="btn-limit-cancel" class="secondary">Not now</button>
             </div>

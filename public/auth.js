@@ -73,6 +73,8 @@ function switchToTab(tab) {
   const registerTab = $('#tab-register');
   const loginCard   = $('#login-card');
   const registerCard = $('#register-card');
+  const authMainTitle = $('#auth-main-title');
+  const authMainSubtext = $('#auth-main-subtext');
 
   document.querySelectorAll('#forgot-password-card, #reset-password-card')
     .forEach(card => card.style.display = 'none');
@@ -86,6 +88,8 @@ function switchToTab(tab) {
     registerTab.style.borderBottomColor = 'transparent';
     loginCard.style.display = 'block';
     registerCard.style.display = 'none';
+    if (authMainTitle) authMainTitle.textContent = 'Login';
+    if (authMainSubtext) authMainSubtext.textContent = 'Please log in to continue.';
   } else {
     registerTab.classList.add('active');
     loginTab.classList.remove('active');
@@ -95,6 +99,8 @@ function switchToTab(tab) {
     loginTab.style.borderBottomColor = 'transparent';
     registerCard.style.display = 'block';
     loginCard.style.display = 'none';
+    if (authMainTitle) authMainTitle.textContent = 'Signup';
+    if (authMainSubtext) authMainSubtext.textContent = 'Create an account to continue.';
   }
 }
 
@@ -190,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Register ───────────────────────────────────────────────────────────────
   const registerEmailEl = $('#register-email');
+  const registerFirstNameEl = $('#register-first-name');
   const registerPassEl  = $('#register-password');
   const btnRegister     = $('#btn-register');
   const registerPasswordHelpEl = $('#register-password-help');
@@ -231,6 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          first_name: (registerFirstNameEl?.value || '').trim(),
           email:    registerEmailEl.value.trim().toLowerCase(),
           password: registerPassEl.value || '',
         }),
@@ -387,6 +395,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#btn-back-to-login-2')?.addEventListener('click', (e) => { e.preventDefault(); switchToForm('auth'); });
+
+  const googleAuth = () => {
+    window.location.href = '/api/auth/google';
+  };
+  $('#btn-google-login')?.addEventListener('click', googleAuth);
+  $('#btn-google-signup')?.addEventListener('click', googleAuth);
 
   // ── Init ───────────────────────────────────────────────────────────────────
   const recovery = getRecoveryContext();

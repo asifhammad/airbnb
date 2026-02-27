@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Alert Buzz favicon">
+  <circle cx="80" cy="80" r="80" fill="#ebedf0"/>
+  <g fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 74 L80 42 L120 74" stroke-width="11"/>
+    <path d="M52 70 V112 H108 V70" stroke-width="11"/>
+    <path d="M98 56 V42" stroke-width="11"/>
+  </g>
+  <rect x="72" y="86" width="16" height="26" rx="2" fill="#000000"/>
+</svg>

@@ -4,28 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Sign in — Alert Buzz</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body class="auth-page">
     <div class="auth-shell">
       <aside class="auth-aside">
-        <div class="auth-brand-pill">
-          <img src="/logo.png" alt="Alert Buzz Logo" class="auth-logo-small" />
-          <span>Alert Buzz</span>
-        </div>
-        <h1>Stay ahead of every listing drop.</h1>
+        <h1>Book the best Airbnb deals at the best price</h1>
         <p>
-          Track neighborhoods, monitor price changes, and get fast alerts without refreshing Airbnb all day.
+          Get instant notifications the moment properties that match your specific location, price, and dates hit the market or drop in price.
         </p>
       </aside>
 
       <main class="auth-main">
         <header class="auth-main-header">
           <div class="auth-heading-wrap">
-            <img src="/logo.png" alt="Alert Buzz Logo" class="auth-logo-large" />
             <div>
-              <h2>Account Access</h2>
-              <p class="note">Sign in or create an account to continue.</p>
+              <h2 id="auth-main-title">Login</h2>
+              <p id="auth-main-subtext" class="note">Please log in to continue.</p>
             </div>
           </div>
         </header>
@@ -36,6 +32,9 @@
         </div>
 
         <section class="card auth-card" id="login-card">
+          <button id="btn-google-login" class="secondary auth-social-btn" type="button">Continue with Google</button>
+          <div class="auth-divider"><span>or</span></div>
+
           <div class="auth-field">
             <label>Email</label>
             <input id="login-email" placeholder="you@example.com" autocomplete="username" />
@@ -56,6 +55,14 @@
         </section>
 
         <section class="card auth-card" id="register-card" style="display:none">
+          <button id="btn-google-signup" class="secondary auth-social-btn" type="button">Continue with Google</button>
+          <div class="auth-divider"><span>or</span></div>
+
+          <div class="auth-field">
+            <label>First name</label>
+            <input id="register-first-name" placeholder="Enter your first name" autocomplete="given-name" />
+          </div>
+
           <div class="auth-field">
             <label>Email</label>
             <input id="register-email" placeholder="you@example.com" autocomplete="email" />
