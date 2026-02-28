@@ -398,6 +398,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Init ───────────────────────────────────────────────────────────────────
   const recovery = getRecoveryContext();
+  // If user already has a valid session, keep them out of /auth
+  // unless they are in a password-recovery flow.
+  if (!recovery.hasRecoveryIntent && !recovery.hasSignupConfirmIntent) {
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (payload?.user?.id) {
+          window.location.href = '/';
+        }
+      })
+      .catch(() => {});
+  }
+
   if (recovery.hasRecoveryIntent) {
     track('auth_recovery_link_opened', { type: recovery.type || 'recovery' });
     switchToForm('reset-password');
