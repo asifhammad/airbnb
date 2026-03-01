@@ -55,6 +55,55 @@ function listingCoverImage(listing) {
   return null;
 }
 
+function normalizeListingId(value) {
+  if (value == null) return null;
+  return String(value);
+}
+
+function buildSearchParams(alert, urlParams) {
+  return {
+    search_url: alert.search_url || null,
+
+    // Fallback fields (used when there is no search_url)
+    check_in:  alert.check_in  || null,
+    check_out: alert.check_out || null,
+    ne_lat:    alert.ne_lat    || null,
+    ne_long:   alert.ne_long   || null,
+    sw_lat:    alert.sw_lat    || null,
+    sw_long:   alert.sw_long   || null,
+    price_min: alert.price_min || null,
+    price_max: alert.price_max || (urlParams && urlParams.price_max ? Number(urlParams.price_max) : null),
+    guests:    alert.guests    || (urlParams && (parseInt(urlParams.adults || 0) + parseInt(urlParams.children || 0))) || 1,
+    amenities: alert.amenities || (urlParams && (urlParams['amenities[]'] || urlParams.amenities)) || [],
+    free_cancellation: alert.free_cancellation || false,
+    currency:  (urlParams && urlParams.currency) || 'USD',
+    proxy_url: process.env.PROXY_URL || '',
+
+    // Extra filters forwarded to Python for fallback search_all() path
+    min_beds:    alert.min_beds    || (urlParams && urlParams.min_beds ? parseInt(urlParams.min_beds) : null) || null,
+    infants:     alert.infants     || (urlParams && urlParams.infants  ? parseInt(urlParams.infants)  : null) || null,
+    instant_book:  (urlParams && (urlParams.ib === 'true' || urlParams.instant_book === 'true')) || !!alert.instant_book || false,
+    guest_favorite:(urlParams && urlParams.guest_favorite === 'true') || !!alert.guest_favorite || false,
+    monthly_search: !!((urlParams && (urlParams.monthly_start_date || urlParams.monthly_length)) && !(alert.check_in && alert.check_out)),
+  };
+}
+
+async function buildFreshAvailabilitySet(searchFn, searchParams, alertId) {
+  try {
+    const freshListings = await searchFn(searchParams) || [];
+    const availableIds = new Set(
+      freshListings
+        .map((listing) => normalizeListingId(listing?.id))
+        .filter(Boolean)
+    );
+    logger.info(`Alert ${alertId}: pre-send validation matched ${availableIds.size} listings`);
+    return availableIds;
+  } catch (err) {
+    logger.warn(`Alert ${alertId}: pre-send availability validation failed (${err.message || err})`);
+    return new Set();
+  }
+}
+
 // ─── Main search alert processor ─────────────────────────────────────────────
 export async function runSearchAlert(alertId, opts = {}) {
   const {
@@ -89,31 +138,7 @@ export async function runSearchAlert(alertId, opts = {}) {
   // ── Build search params for Python ─────────────────────────────────────────
   // Always prefer search_url — our new airbnb_search.py uses it directly and
   // produces results that exactly match the Airbnb UI.
-  const searchParams = {
-    search_url: alert.search_url || null,
-
-    // Fallback fields (used when there is no search_url)
-    check_in:  alert.check_in  || null,
-    check_out: alert.check_out || null,
-    ne_lat:    alert.ne_lat    || null,
-    ne_long:   alert.ne_long   || null,
-    sw_lat:    alert.sw_lat    || null,
-    sw_long:   alert.sw_long   || null,
-    price_min: alert.price_min || null,
-    price_max: alert.price_max || (urlParams && urlParams.price_max ? Number(urlParams.price_max) : null),
-    guests:    alert.guests    || (urlParams && (parseInt(urlParams.adults || 0) + parseInt(urlParams.children || 0))) || 1,
-    amenities: alert.amenities || (urlParams && (urlParams['amenities[]'] || urlParams.amenities)) || [],
-    free_cancellation: alert.free_cancellation || false,
-    currency:  (urlParams && urlParams.currency) || 'USD',
-    proxy_url: process.env.PROXY_URL || '',
-
-    // Extra filters forwarded to Python for the fallback search_all() path
-    min_beds:    alert.min_beds    || (urlParams && urlParams.min_beds ? parseInt(urlParams.min_beds) : null) || null,
-    infants:     alert.infants     || (urlParams && urlParams.infants  ? parseInt(urlParams.infants)  : null) || null,
-    instant_book:  (urlParams && (urlParams.ib === 'true' || urlParams.instant_book === 'true')) || !!alert.instant_book || false,
-    guest_favorite:(urlParams && urlParams.guest_favorite === 'true') || !!alert.guest_favorite || false,
-    monthly_search: !!((urlParams && (urlParams.monthly_start_date || urlParams.monthly_length)) && !(alert.check_in && alert.check_out)),
-  };
+  const searchParams = buildSearchParams(alert, urlParams);
 
   // Run scraper
   let currentListings = [];
@@ -405,14 +430,29 @@ export async function runSearchAlert(alertId, opts = {}) {
           );
         } else {
           // Priority: price drop > availability > new listing.
-          const prioritizedBatches = [
+          // Before queueing anything, run a fresh search and only queue listings
+          // still present for the exact alert query (do not rely on iCal here).
+          const availableNow = await buildFreshAvailabilitySet(searchFn, searchParams, alertId);
+          const preValidatedBatches = [
             { listings: priceDropListings, emailType: 'price_drop',   notifType: 'price_drop' },
             { listings: freedUpListings,   emailType: 'availability', notifType: 'availability_change' },
             { listings: newListings,       emailType: 'new',          notifType: 'new_listing' },
-          ];
+          ].map((batch) => ({
+            ...batch,
+            listings: batch.listings.filter((l) => availableNow.has(normalizeListingId(l?.id))),
+          }));
+
+          const filteredOutCount =
+            (priceDropListings.length + freedUpListings.length + newListings.length) -
+            preValidatedBatches.reduce((sum, b) => sum + b.listings.length, 0);
+          if (filteredOutCount > 0) {
+            logger.info(
+              `Alert ${alertId}: pre-send validation filtered ${filteredOutCount} listing(s) no longer matching alert availability`
+            );
+          }
 
           let queuedTotal = 0;
-          for (const batch of prioritizedBatches) {
+          for (const batch of preValidatedBatches) {
             if (remainingQuota <= 0) break;
             if (!batch.listings.length) continue;
             const toQueue = batch.listings.slice(0, remainingQuota);
