@@ -547,7 +547,7 @@ button[disabled] {
 
 /* Emphasize the primary "Save Alert" CTA (now the main action) */
 #btn-create-url-alert {
-  padding: 10px 16px;
+  padding: 8px 32px;
   font-size: 14px;
   font-weight: 700;
   border-radius: var(--btn-radius);

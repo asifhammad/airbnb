@@ -1,59 +1,62 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Plan & Billing — Alert Buzz</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css">
-  </head>
-  <body>
-    <div class="container">
-      <header>
-        <div style="display:flex;align-items:center;gap:12px">
-          <img src="/logo.png" alt="Alert Buzz Logo" style="width:40px;height:40px;border-radius:8px" />
-          <h1 style="margin:0">Alert Buzz</h1>
-        </div>
-        <div id="auth-area">
-          <a href="/" class="secondary">← Back to Dashboard</a>
-          <button id="btn-logout" class="secondary">Sign out</button>
-        </div>
-      </header>
 
-      <main>
-        <!-- ── Subscription / plan card ─────────────────────────────────── -->
-        <section class="card" id="subscription-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-            <div>
-              <h2 style="margin:0 0 4px">Your plan</h2>
-              <div id="plan-summary" class="note">Loading…</div>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button id="btn-upgrade" class="primary">Upgrade plan</button>
-              <button id="btn-manage-billing" class="secondary">Manage billing</button>
-            </div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Plan & Billing — Alert Buzz</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <div style="display:flex;align-items:center;gap:12px">
+        <img src="/logo1.png" alt="Alert Buzz Logo" style="width:40px;height:40px;border-radius:8px" />
+        <h1 style="margin:0">Alert Buzz</h1>
+      </div>
+      <div id="auth-area">
+        <a href="/" class="secondary">← Back to Dashboard</a>
+        <button id="btn-logout" class="secondary">Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- ── Subscription / plan card ─────────────────────────────────── -->
+      <section class="card" id="subscription-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2 style="margin:0 0 4px">Your plan</h2>
+            <div id="plan-summary" class="note">Loading…</div>
           </div>
-
-          <!-- Inline plan picker (revealed when upgrade clicked) -->
-          <div id="upgrade-panel" class="hidden" style="margin-top:20px">
-            <h3 style="margin:0 0 14px">Choose a plan</h3>
-            <div id="plan-cards" style="display:flex;flex-direction:column;gap:12px;max-width:560px"></div>
-            <div style="margin-top:16px;display:flex;gap:8px">
-              <button id="btn-confirm-upgrade" class="primary" disabled>Continue to payment →</button>
-              <button id="btn-cancel-upgrade" class="secondary">Cancel</button>
-            </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btn-upgrade" class="primary">Upgrade plan</button>
+            <button id="btn-manage-billing" class="secondary">Manage billing</button>
           </div>
-        </section>
+        </div>
 
-        <div id="message" class="message hidden"></div>
-      </main>
+        <!-- Inline plan picker (revealed when upgrade clicked) -->
+        <div id="upgrade-panel" class="hidden" style="margin-top:20px">
+          <h3 style="margin:0 0 14px">Choose a plan</h3>
+          <div id="plan-cards" style="display:flex;flex-direction:column;gap:12px;max-width:560px"></div>
+          <div style="margin-top:16px;display:flex;gap:8px">
+            <button id="btn-confirm-upgrade" class="primary" disabled>Continue to payment →</button>
+            <button id="btn-cancel-upgrade" class="secondary">Cancel</button>
+          </div>
+        </div>
+      </section>
 
-      <footer>
-        <small style="color:var(--muted)">Alert Buzz</small>
-      </footer>
-    </div>
+      <div id="message" class="message hidden"></div>
+    </main>
 
-    <script src="/analytics.js"></script>
-    <script src="/billing.js"></script>
-  </body>
+    <footer>
+      <small style="color:var(--muted)">Alert Buzz</small>
+    </footer>
+  </div>
+
+  <script src="/analytics.js"></script>
+  <script src="/billing.js"></script>
+</body>
+
 </html>
