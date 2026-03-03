@@ -1,200 +1,226 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Alert Buzz</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css">
-  </head>
-  <body>
-    <div class="container">
-      <header>
-        <div style="display:flex;align-items:center;gap:12px">
-          <img src="/logo.png" alt="Alert Buzz Logo" style="width:40px;height:40px;border-radius:8px" />
-          <h1 style="margin:0">Alert Buzz</h1>
-        </div>
-        <div id="auth-area">
-          <div class="user-menu">
-            <button id="user-menu-btn" class="user-menu-btn">
-              <span class="user-avatar">👤</span>
-              <span class="user-email" id="user-email-display"></span>
-              <span class="dropdown-arrow">▼</span>
-            </button>
-            <div id="user-dropdown" class="user-dropdown hidden">
-              <a href="/billing" class="dropdown-item">My plan</a>
-              <a href="https://www.alertbuzz.io/#pricing" class="dropdown-item" target="_blank" rel="noopener noreferrer">Pricing</a>
-              <a href="https://tally.so/r/kdY5oR" class="dropdown-item" target="_blank" rel="noopener noreferrer">Get help</a>
-              <div class="dropdown-divider"></div>
-              <button id="btn-logout" class="dropdown-item logout-btn">Logout</button>
-            </div>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Alert Buzz</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <div class="header-brand" style="display:flex;align-items:center;gap:12px">
+        <img src="/logo1.png" alt="Alert Buzz Logo" style="width:40px;height:40px;border-radius:8px" />
+        <h1 style="margin:0">Alert Buzz</h1>
+      </div>
+      <div id="auth-area">
+        <div class="user-menu">
+          <button id="user-menu-btn" class="user-menu-btn">
+            <span class="user-avatar">👤</span>
+            <span class="user-email" id="user-email-display"></span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div id="user-dropdown" class="user-dropdown hidden">
+            <a href="/billing" class="dropdown-item">My plan</a>
+            <a href="#" id="affiliate-dropdown-link" class="dropdown-item hidden" target="_blank" rel="noopener noreferrer">Affiliate</a>
+            <a href="https://www.alertbuzz.io/#pricing" class="dropdown-item" target="_blank"
+              rel="noopener noreferrer">Pricing</a>
+            <a href="https://tally.so/r/kdY5oR" class="dropdown-item" target="_blank" rel="noopener noreferrer">Get
+              help</a>
+            <div class="dropdown-divider"></div>
+            <button id="btn-logout" class="dropdown-item logout-btn">Logout</button>
           </div>
         </div>
-      </header>
+      </div>
+    </header>
 
-      <main>
+    <main>
 
-        <!-- ── Create alert ─────────────────────────────────────────────── -->
-        <section class="card hidden" id="create-alert-card">
-          <h2>Create alert</h2>
+      <!-- ── Create alert ─────────────────────────────────────────────── -->
+      <section class="card hidden" id="create-alert-card">
+        <h2>Create alert</h2>
 
-          <!-- Free user notice -->
-          <div id="free-trial-notice" style="background:linear-gradient(90deg,#f59e0b,#ef4444);color:white;padding:12px;border-radius:8px;margin-bottom:16px;font-size:14px">
-            <strong>Free Trial:</strong> You can create 1 alert that lasts 7 days. Upgrade for unlimited alerts and real-time notifications.
-          </div>
+        <!-- Free user notice -->
+        <div id="free-trial-notice"
+          style="background:linear-gradient(90deg,#f59e0b,#ef4444);color:white;padding:12px;border-radius:8px;margin-bottom:16px;font-size:14px">
+          You're on a 7-day free trial: You can create 1 alert. <a href="/billing"
+            style="color:white;text-decoration:underline;font-weight:600">Upgrade for unlimited alerts and instant
+            notifications.</a>
+        </div>
 
-          <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+        <div class="create-alert-layout" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
 
-            <!-- URL-based search alert (primary) -->
-            <div style="flex:2;min-width:300px">
-              <h3 style="margin-top:0">Paste your Airbnb search URL</h3>
-              <p class="note" style="margin-bottom:10px">
-                Go to Airbnb, apply all your filters, then copy the URL from your browser bar and paste it here.
-                We'll monitor that exact search and notify you when new listings appear.
-              </p>
-              <div class="row">
-                <input id="alert-search-url"
-                  placeholder="https://www.airbnb.com/s/Barcelona--Spain/homes?checkin=…"
-                  style="flex:1" />
-              </div>
-              <div id="alert-search-preview" class="search-url-preview hidden" aria-hidden="true"></div>
-              <div class="row buttons">
-                <button id="btn-create-url-alert">Save alert</button>
-              </div>
+          <!-- URL-based search alert (primary) -->
+          <div class="create-alert-column" style="flex:2;min-width:300px">
+            <h3 style="margin-top:0">Paste your Airbnb search URL</h3>
+            <p class="note" style="margin-bottom:10px">
+              Go to Airbnb, apply all your filters, then copy the URL from your browser bar and paste it here.
+              We'll monitor that exact search and notify you when new listings appear.
+            </p>
+            <div class="row">
+              <input id="alert-search-url" placeholder="https://www.airbnb.com/s/Barcelona--Spain/homes?checkin=…"
+                style="flex:1" />
             </div>
-
-            <!-- (Specific listing tracking removed — only URL-based search alerts are supported in the UI) -->
-
-          </div>
-        </section>
-
-        <!-- ── Billing summary (for paying customers) ───────────────────────────── -->
-        <section class="card hidden" id="billing-summary-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <h2 style="margin:0">Your Plan</h2>
-            <div style="display:flex;gap:8px">
-              <button id="btn-manage-billing-dashboard" class="secondary" style="font-size:13px;padding:6px 10px">Manage Billing</button>
-              <a href="/billing" class="secondary" style="font-size:13px;padding:6px 10px;text-decoration:none;display:inline-block">View Details</a>
+            <div id="alert-search-preview" class="search-url-preview hidden" aria-hidden="true"></div>
+            <div class="row buttons">
+              <button id="btn-create-url-alert">Save Alert</button>
             </div>
           </div>
-          
-          <div id="billing-summary-content" style="display:flex;flex-direction:column;gap:12px">
-            <!-- Content will be populated by JavaScript -->
-            <div style="color:var(--muted)">Loading plan information…</div>
-          </div>
-        </section>
 
-        <!-- ── Your alerts ──────────────────────────────────────────────── -->
-        <section class="card hidden" id="alerts-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <h2 style="margin:0">Your alerts</h2>
-            <button id="btn-refresh" class="secondary" style="font-size:13px;padding:6px 10px">↻ Refresh</button>
-          </div>
-          <div id="alerts-list"></div>
-        </section>
+          <!-- (Specific listing tracking removed — only URL-based search alerts are supported in the UI) -->
 
-        <!-- ── Listings panel ───────────────────────────────────────────── -->
-        <section class="card hidden" id="listings-panel">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-            <h2 style="margin:0">Listings <span id="listings-for-id"></span></h2>
-            <div style="display:flex;gap:8px;align-items:center">
-              <label style="font-size:13px;color:var(--muted)">Page size
-                <select id="page-size" style="margin-left:6px">
-                  <option>10</option>
-                  <option selected>20</option>
-                  <option>50</option>
-                </select>
-              </label>
-              <button id="btn-prev-page" class="secondary">Prev</button>
-              <button id="btn-next-page" class="secondary">Next</button>
-              <button id="btn-load-more">Load more</button>
-            </div>
-          </div>
-          <div id="listings-list"></div>
-        </section>
+        </div>
+      </section>
 
-        <!-- ── Confirm modal ────────────────────────────────────────────── -->
-        <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true">
-          <div class="modal-backdrop" id="confirm-backdrop"></div>
-          <div class="modal-content" style="max-width:420px">
-            <div id="confirm-body" style="padding:12px">Are you sure?</div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px">
-              <button id="confirm-cancel" class="secondary">Cancel</button>
-              <button id="confirm-ok">Confirm</button>
-            </div>
+      <!-- ── Billing summary (for paying customers) ───────────────────────────── -->
+      <section class="card hidden" id="billing-summary-card">
+        <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">Your Plan</h2>
+          <div style="display:flex;gap:8px">
+            <button id="btn-manage-billing-dashboard" class="secondary" style="font-size:13px;padding:6px 10px">Manage
+              Billing</button>
+            <a href="/billing" class="secondary"
+              style="font-size:13px;padding:6px 10px;text-decoration:none;display:inline-block">View Details</a>
           </div>
         </div>
 
-        <!-- ── Alert-created confirmation modal (shown after creating a URL alert) ── -->
-        <div id="alert-created-modal" class="modal hidden" role="dialog" aria-modal="true">
-          <div class="modal-backdrop" id="alert-created-backdrop"></div>
-          <div class="modal-content" style="max-width:520px">
-            <button id="alert-created-close" class="modal-close">×</button>
-            <h2 style="margin-top:0">Your search alert has been set! 🙌</h2>
-            <p style="color:var(--muted)">We'll email you daily at 11am EST only if there are newly available listings (e.g. cancellations, price drops, or new listings).</p>
-            <p style="margin-top:8px;font-weight:700">Want instant alerts when listings become available throughout the day, so you can book before others?</p>
-            <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
-              <button id="btn-upgrade-now" class="primary">Upgrade to Premium</button>
-              <button id="btn-alert-created-notnow" class="secondary">Not now</button>
+        <div id="billing-summary-content" style="display:flex;flex-direction:column;gap:12px">
+          <!-- Content will be populated by JavaScript -->
+          <div style="color:var(--muted)">Loading plan information…</div>
+        </div>
+      </section>
+
+      <!-- ── Your alerts ──────────────────────────────────────────────── -->
+      <section class="card hidden" id="alerts-card">
+        <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h2 style="margin:0">Your alerts</h2>
+          <button id="btn-refresh" class="secondary" style="font-size:13px;padding:6px 10px">↻ Refresh</button>
+        </div>
+        <div id="alerts-list"></div>
+      </section>
+
+      <!-- ── Listings panel ───────────────────────────────────────────── -->
+      <section class="card hidden" id="listings-panel">
+        <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <h2 style="margin:0">Listings <span id="listings-for-id"></span></h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label style="font-size:13px;color:var(--muted)">Page size
+              <select id="page-size" style="margin-left:6px">
+                <option>10</option>
+                <option selected>20</option>
+                <option>50</option>
+              </select>
+            </label>
+            <button id="btn-prev-page" class="secondary">Prev</button>
+            <button id="btn-next-page" class="secondary">Next</button>
+            <button id="btn-load-more">Load more</button>
+          </div>
+        </div>
+        <div id="listings-list"></div>
+      </section>
+
+      <!-- ── Confirm modal ────────────────────────────────────────────── -->
+      <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="confirm-backdrop"></div>
+        <div class="modal-content" style="max-width:420px">
+          <div id="confirm-body" style="padding:12px">Are you sure?</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px">
+            <button id="confirm-cancel" class="secondary">Cancel</button>
+            <button id="confirm-ok">Confirm</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Alert-created confirmation modal (shown after creating a URL alert) ── -->
+      <div id="alert-created-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="alert-created-backdrop"></div>
+        <div class="modal-content" style="max-width:520px">
+          <button id="alert-created-close" class="modal-close">×</button>
+          <h2 style="margin-top:0">Your search alert has been set! 🙌</h2>
+          <p style="color:var(--muted)">We'll email you daily at 11am EST only if there are newly available listings
+            (e.g. cancellations, price drops, or new listings).</p>
+          <p style="margin-top:8px;font-weight:700">Want instant alerts when listings become available throughout the
+            day, so you can book before others?</p>
+          <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
+            <button id="btn-upgrade-now" class="primary">Upgrade to Premium</button>
+            <button id="btn-alert-created-notnow" class="secondary">Not now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Creation limit modal (shown when free/basic users try to add >1 search) ── -->
+      <div id="limit-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="limit-backdrop"></div>
+        <div class="modal-content" style="max-width:520px">
+          <button id="limit-close" class="modal-close">×</button>
+          <h2 style="margin-top:0">Upgrade to add more searches</h2>
+          <p style="color:var(--muted)">Free & Basic users can create only 1 active search alert. Upgrade to Premium to
+            create multiple searches and receive instant notifications.</p>
+          <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
+            <button id="btn-limit-upgrade" class="primary">Upgrade to Premium</button>
+            <button id="btn-limit-cancel" class="secondary">Not now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Listing details modal ────────────────────────────────────── -->
+      <div id="listing-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="modal-backdrop"></div>
+        <div class="modal-content">
+          <button id="modal-close" class="modal-close">×</button>
+          <div id="modal-body">
+            <div id="modal-loader">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Search-link modal (shows the URL the user saved) ───────────────── -->
+      <div id="search-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="search-backdrop"></div>
+        <div class="modal-content" style="max-width:640px">
+          <button id="search-modal-close" class="modal-close">×</button>
+          <div id="search-modal-body" style="padding:12px">
+            <h3 style="margin-top:0">Your saved search</h3>
+            <p class="note">This is the exact Airbnb search URL you provided. You can open it or copy the link.</p>
+            <pre id="search-url-display"
+              style="background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;overflow:auto;word-break:break-all"></pre>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+              <button id="search-open" class="secondary">Open search</button>
+              <button id="search-copy">Copy link</button>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- ── Creation limit modal (shown when free/basic users try to add >1 search) ── -->
-        <div id="limit-modal" class="modal hidden" role="dialog" aria-modal="true">
-          <div class="modal-backdrop" id="limit-backdrop"></div>
-          <div class="modal-content" style="max-width:520px">
-            <button id="limit-close" class="modal-close">×</button>
-            <h2 style="margin-top:0">Upgrade to add more searches</h2>
-            <p style="color:var(--muted)">Free & Basic users can create only 1 active search alert. Upgrade to Premium to create multiple searches and receive instant notifications.</p>
-            <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
-              <button id="btn-limit-upgrade" class="primary">Upgrade to Premium</button>
-              <button id="btn-limit-cancel" class="secondary">Not now</button>
-            </div>
+      <!-- ── Recent notifications ─────────────────────────────────────── -->
+      <section class="card hidden" id="affiliate-card">
+        <div class="affiliate-cta">
+          <div>
+            <h2 style="margin:0">Affiliate program</h2>
+            <p class="note" style="margin:6px 0 0">Share Alert Buzz and earn commission for referred customers.</p>
           </div>
+          <a href="#" id="btn-affiliate-program" class="affiliate-btn hidden" target="_blank" rel="noopener noreferrer">Affiliate Program</a>
         </div>
+      </section>
 
-        <!-- ── Listing details modal ────────────────────────────────────── -->
-        <div id="listing-modal" class="modal hidden" role="dialog" aria-modal="true">
-          <div class="modal-backdrop" id="modal-backdrop"></div>
-          <div class="modal-content">
-            <button id="modal-close" class="modal-close">×</button>
-            <div id="modal-body"><div id="modal-loader">Loading…</div></div>
-          </div>
-        </div>
+      <section class="card hidden" id="notifications-card">
+        <h2>Recent notifications</h2>
+        <div id="notifications-list"></div>
+      </section>
 
-        <!-- ── Search-link modal (shows the URL the user saved) ───────────────── -->
-        <div id="search-modal" class="modal hidden" role="dialog" aria-modal="true">
-          <div class="modal-backdrop" id="search-backdrop"></div>
-          <div class="modal-content" style="max-width:640px">
-            <button id="search-modal-close" class="modal-close">×</button>
-            <div id="search-modal-body" style="padding:12px">
-              <h3 style="margin-top:0">Your saved search</h3>
-              <p class="note">This is the exact Airbnb search URL you provided. You can open it or copy the link.</p>
-              <pre id="search-url-display" style="background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;overflow:auto;word-break:break-all"></pre>
-              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-                <button id="search-open" class="secondary">Open search</button>
-                <button id="search-copy">Copy link</button>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div id="message" class="message hidden"></div>
+    </main>
 
-        <!-- ── Recent notifications ─────────────────────────────────────── -->
-        <section class="card hidden" id="notifications-card">
-          <h2>Recent notifications</h2>
-          <div id="notifications-list"></div>
-        </section>
+    <footer>
+      <small style="color:var(--muted)">Alert Buzz</small>
+    </footer>
+  </div>
 
-        <div id="message" class="message hidden"></div>
-      </main>
+  <script src="/analytics.js"></script>
+  <script src="/app.js"></script>
+</body>
 
-      <footer>
-        <small style="color:var(--muted)">Alert Buzz</small>
-      </footer>
-    </div>
-
-    <script src="/analytics.js"></script>
-    <script src="/app.js"></script>
-  </body>
 </html>

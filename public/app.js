@@ -1,6 +1,19 @@
 const $ = (sel) => document.querySelector(sel);
 const analytics = window.analytics || null;
 let currentUserTier = null;
+let cachedPublicConfig = null;
+
+async function getPublicConfig() {
+  if (cachedPublicConfig) return cachedPublicConfig;
+  try {
+    const res = await fetch('/api/public-config', { credentials: 'same-origin' });
+    if (!res.ok) return {};
+    cachedPublicConfig = await res.json();
+    return cachedPublicConfig || {};
+  } catch (_) {
+    return {};
+  }
+}
 
 function track(event, props) {
   try { analytics?.track?.(event, props || {}); } catch (_) { /* no-op */ }
@@ -140,7 +153,7 @@ async function createUrlAlert() {
     if (res.is_free_trial) {
       showMessage('Free alert created! This alert will expire in 7 days. Upgrade to create permanent alerts.');
     } else {
-      showMessage(res.message || 'Alert saved!');
+      showMessage('Your search alert has been set! 🙌');
     }
     
     $('#alert-search-url').value = '';
@@ -329,8 +342,8 @@ function renderAlerts(alerts) {
               ${statusBadge}
               ${expirationInfo}
             </div>
-        <div>${title}</div>
-        <div style="color:var(--muted);font-size:12px">${checkMeta} · ${notifMeta}</div>
+        <div class="alert-title">${title}</div>
+        <div class="alert-submeta">${checkMeta} · ${notifMeta}</div>
         ${controlsHtml}
       `;
     container.appendChild(div);
@@ -879,6 +892,41 @@ async function showLoggedInState() {
   document.getElementById('notifications-card').classList.remove('hidden');
 }
 
+async function setupAffiliateLinks() {
+  const cfg = await getPublicConfig();
+  const affiliateUrl = sanitizeExternalUrl(cfg?.referly?.affiliate_url);
+
+  const dropdownLink = document.getElementById('affiliate-dropdown-link');
+  const dashboardBtn = document.getElementById('btn-affiliate-program');
+  const affiliateCard = document.getElementById('affiliate-card');
+
+  if (dropdownLink) {
+    dropdownLink.href = affiliateUrl || '#';
+    dropdownLink.classList.remove('hidden');
+    dropdownLink.addEventListener('click', (e) => {
+      if (!affiliateUrl) {
+        e.preventDefault();
+        showMessage('Affiliate link coming soon.');
+      }
+      track('affiliate_link_clicked', { source: 'user_dropdown' });
+    });
+  }
+
+  if (dashboardBtn) {
+    dashboardBtn.href = affiliateUrl || '#';
+    dashboardBtn.classList.remove('hidden');
+    dashboardBtn.addEventListener('click', (e) => {
+      if (!affiliateUrl) {
+        e.preventDefault();
+        showMessage('Affiliate link coming soon.');
+      }
+      track('affiliate_link_clicked', { source: 'dashboard_card' });
+    });
+  }
+
+  if (affiliateCard) affiliateCard.classList.remove('hidden');
+}
+
 function init() {
   // Wire up buttons that exist in the DOM
   const safeOn = (sel, handler) => { const el = $(sel); if (el) el.addEventListener('click', handler); };
@@ -945,6 +993,7 @@ function init() {
   safeOn('#alert-created-close', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
   const _acBackdrop = $('#alert-created-backdrop'); if (_acBackdrop) _acBackdrop.addEventListener('click', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
 
+  setupAffiliateLinks();
   showLoggedInState();
   loadNotifications();
 }

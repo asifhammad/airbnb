@@ -33,6 +33,17 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${PORT}`;
 const isDev = process.env.NODE_ENV === 'development';
 
+function sanitizePublicHttpUrl(value) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(String(value));
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 if (process.env.NODE_ENV === 'production' && !sessionSecret) {
   throw new Error('SESSION_SECRET must be set in production');
 }
@@ -527,11 +538,16 @@ app.get('/health', (req, res) => {
 
 // Public client-side config (safe values only)
 app.get('/api/public-config', (req, res) => {
+  const referlyAffiliateUrl = sanitizePublicHttpUrl(process.env.REFERLY_AFFILIATE_URL);
   res.json({
     posthog: {
       enabled: Boolean(process.env.POSTHOG_PUBLIC_KEY),
       key: process.env.POSTHOG_PUBLIC_KEY || null,
       host: POSTHOG_HOST,
+    },
+    referly: {
+      enabled: Boolean(referlyAffiliateUrl),
+      affiliate_url: referlyAffiliateUrl,
     },
   });
 });

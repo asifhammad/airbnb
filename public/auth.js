@@ -69,9 +69,7 @@ function switchToForm(formId) {
 }
 
 function switchToTab(tab) {
-  const loginTab    = $('#tab-login');
-  const registerTab = $('#tab-register');
-  const loginCard   = $('#login-card');
+  const loginCard = $('#login-card');
   const registerCard = $('#register-card');
   const authMainTitle = $('#auth-main-title');
   const authMainSubtext = $('#auth-main-subtext');
@@ -80,27 +78,15 @@ function switchToTab(tab) {
     .forEach(card => card.style.display = 'none');
 
   if (tab === 'login') {
-    loginTab.classList.add('active');
-    registerTab.classList.remove('active');
-    loginTab.style.color = 'var(--text)';
-    registerTab.style.color = 'var(--muted)';
-    loginTab.style.borderBottomColor = 'var(--accent)';
-    registerTab.style.borderBottomColor = 'transparent';
     loginCard.style.display = 'block';
     registerCard.style.display = 'none';
-    if (authMainTitle) authMainTitle.textContent = 'Login';
-    if (authMainSubtext) authMainSubtext.textContent = 'Please log in to continue.';
+    if (authMainTitle) authMainTitle.textContent = 'Welcome Back';
+    if (authMainSubtext) authMainSubtext.textContent = 'Log in to your account';
   } else {
-    registerTab.classList.add('active');
-    loginTab.classList.remove('active');
-    registerTab.style.color = 'var(--text)';
-    loginTab.style.color = 'var(--muted)';
-    registerTab.style.borderBottomColor = 'var(--accent)';
-    loginTab.style.borderBottomColor = 'transparent';
     registerCard.style.display = 'block';
     loginCard.style.display = 'none';
-    if (authMainTitle) authMainTitle.textContent = 'Signup';
-    if (authMainSubtext) authMainSubtext.textContent = 'Create an account to continue.';
+    if (authMainTitle) authMainTitle.textContent = 'Welcome to AlertBuzz';
+    if (authMainSubtext) authMainSubtext.textContent = 'Your Gateway to Smart Airbnb Alerts';
   }
 }
 
@@ -134,14 +120,14 @@ function getRecoveryContext() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // ── Tab switching ──────────────────────────────────────────────────────────
-  $('#tab-login')?.addEventListener('click', () => switchToTab('login'));
-  $('#tab-register')?.addEventListener('click', () => switchToTab('register'));
+  // ── Form switching ──────────────────────────────────────────────────────
+  $('#switch-to-login')?.addEventListener('click', () => switchToTab('login'));
+  $('#switch-to-register')?.addEventListener('click', () => switchToTab('register'));
 
   // ── Login ──────────────────────────────────────────────────────────────────
   const loginEmailEl = $('#login-email');
-  const loginPassEl  = $('#login-password');
-  const btnLogin     = $('#btn-login');
+  const loginPassEl = $('#login-password');
+  const btnLogin = $('#btn-login');
 
   const updateLoginButton = () => {
     if (btnLogin && !isButtonLoading(btnLogin)) btnLogin.disabled =
@@ -168,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email:    loginEmailEl.value.trim().toLowerCase(),
+          email: loginEmailEl.value.trim().toLowerCase(),
           password: loginPassEl.value || '',
         }),
         credentials: 'same-origin',
@@ -197,8 +183,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Register ───────────────────────────────────────────────────────────────
   const registerEmailEl = $('#register-email');
   const registerFirstNameEl = $('#register-first-name');
-  const registerPassEl  = $('#register-password');
-  const btnRegister     = $('#btn-register');
+  const registerPassEl = $('#register-password');
+  const btnRegister = $('#btn-register');
   const registerPasswordHelpEl = $('#register-password-help');
 
   const updateRegisterButton = () => {
@@ -239,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           first_name: (registerFirstNameEl?.value || '').trim(),
-          email:    registerEmailEl.value.trim().toLowerCase(),
+          email: registerEmailEl.value.trim().toLowerCase(),
           password: registerPassEl.value || '',
         }),
         credentials: 'same-origin',
@@ -277,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Forgot password ────────────────────────────────────────────────────────
   const forgotEmailEl = $('#forgot-email');
-  const btnSendReset  = $('#btn-send-reset');
+  const btnSendReset = $('#btn-send-reset');
 
   const updateForgotButton = () => {
     if (btnSendReset && !isButtonLoading(btnSendReset)) {
@@ -314,9 +300,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-back-to-login')?.addEventListener('click', (e) => { e.preventDefault(); switchToForm('auth'); });
 
   // ── Reset password ─────────────────────────────────────────────────────────
-  const resetPassEl    = $('#reset-password');
+  const resetPassEl = $('#reset-password');
   const resetConfirmEl = $('#reset-confirm');
-  const btnReset       = $('#btn-reset-password');
+  const btnReset = $('#btn-reset-password');
   const resetPasswordHelpEl = $('#reset-password-help');
   const resetConfirmHelpEl = $('#reset-confirm-help');
 
@@ -408,7 +394,7 @@ document.addEventListener('DOMContentLoaded', () => {
           window.location.href = '/';
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 
   if (recovery.hasRecoveryIntent) {
