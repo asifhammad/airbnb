@@ -147,21 +147,20 @@ async function createUrlAlert() {
     }
     if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from airbnb.com', true);
     const res = await apiRequest('POST', '/api/alerts/url', { search_url });
-    track('alert_created', { source: 'search_url', is_free_trial: Boolean(res?.is_free_trial) });
+    // Avoid firing external automation tied to `alert_created` (which was sending a confirmation email).
+    // Keep product analytics under a non-automated event name.
+    track('alert_created_ui', { source: 'search_url', is_free_trial: Boolean(res?.is_free_trial) });
     
     // Show appropriate message based on alert type
     if (res.is_free_trial) {
       showMessage('Free alert created! This alert will expire in 7 days. Upgrade to create permanent alerts.');
     } else {
-      showMessage('Your search alert has been set! 🙌');
+      showMessage('Search alert created.');
     }
     
     $('#alert-search-url').value = '';
   const previewEl = $('#alert-search-preview'); if (previewEl) { previewEl.classList.add('hidden'); previewEl.setAttribute('aria-hidden', 'true'); previewEl.textContent = ''; }
     loadAlerts();
-    try {
-      if (currentUserTier !== 'premium') showAlertCreatedModal();
-    } catch (e) { /* ignore */ }
   } catch (err) {
     if (err.upgrade_required) {
       showMessage(err.error, true);

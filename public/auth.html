@@ -1,136 +1,146 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Sign in — Alert Buzz</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css">
-  </head>
-  <body class="auth-page">
-    <div class="auth-shell">
-      <main class="auth-main">
-        <!-- Logo -->
-        <div class="auth-logo-wrap">
-          <img src="/logo.png" alt="Alert Buzz" class="auth-logo" />
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sign in — Alert Buzz</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body class="auth-page">
+  <div class="auth-shell">
+    <main class="auth-main">
+      <!-- Logo -->
+      <div class="auth-logo-wrap">
+        <img src="/logo1.png" alt="Alert Buzz" class="auth-logo" />
+      </div>
+
+      <!-- Heading area – toggled by JS -->
+      <h2 id="auth-main-title" class="auth-title">Welcome to AlertBuzz</h2>
+      <p id="auth-main-subtext" class="auth-subtitle">Your Gateway to Smart Airbnb Alerts</p>
+
+      <!-- ══ Register (default) ════════════════════════════════════ -->
+      <section class="auth-card" id="register-card">
+        <div class="auth-field">
+          <label>First name</label>
+          <input id="register-first-name" placeholder="Enter your first name" autocomplete="given-name" />
         </div>
 
-        <!-- Heading area – toggled by JS -->
-        <h2 id="auth-main-title" class="auth-title">Welcome to AlertBuzz</h2>
-        <p id="auth-main-subtext" class="auth-subtitle">Your Gateway to Smart Airbnb Alerts</p>
+        <div class="auth-field">
+          <label>Email</label>
+          <input id="register-email" placeholder="Email address" autocomplete="email" />
+          <div id="register-email-help" class="note"></div>
+        </div>
 
-        <!-- ══ Register (default) ════════════════════════════════════ -->
-        <section class="auth-card" id="register-card">
-          <div class="auth-field">
-            <label>First name</label>
-            <input id="register-first-name" placeholder="Enter your first name" autocomplete="given-name" />
+        <div class="auth-field">
+          <label>Password</label>
+          <div class="auth-input-row">
+            <input id="register-password" placeholder="Choose a strong password" type="password"
+              autocomplete="new-password" />
+            <button id="toggle-register-password" class="secondary" type="button">Show</button>
           </div>
+          <div id="register-password-help" class="note">At least 8 characters, include letters and numbers.</div>
+        </div>
 
-          <div class="auth-field">
-            <label>Email</label>
-            <input id="register-email" placeholder="Email address" autocomplete="email" />
-            <div id="register-email-help" class="note"></div>
+        <button id="btn-register" disabled class="auth-submit">Submit</button>
+
+        <p class="auth-switch-text">
+          Already have an account? <button id="switch-to-login" class="auth-switch-link" type="button">Login</button>
+        </p>
+      </section>
+
+      <!-- ══ Login ═════════════════════════════════════════════════ -->
+      <section class="auth-card" id="login-card" style="display:none">
+        <div class="auth-field">
+          <label>Email</label>
+          <input id="login-email" placeholder="Email address" autocomplete="username" />
+          <div id="login-email-help" class="note"></div>
+        </div>
+
+        <div class="auth-field">
+          <label>Password</label>
+          <div class="auth-input-row">
+            <input id="login-password" placeholder="Enter your password" type="password"
+              autocomplete="current-password" />
+            <button id="toggle-login-password" class="secondary" type="button">Show</button>
           </div>
+          <div id="login-password-help" class="note">At least 8 characters, include letters and numbers.</div>
+        </div>
 
-          <div class="auth-field">
-            <label>Password</label>
-            <div class="auth-input-row">
-              <input id="register-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" />
-              <button id="toggle-register-password" class="secondary" type="button">Show</button>
-            </div>
-            <div id="register-password-help" class="note">At least 8 characters, include letters and numbers.</div>
+        <button id="btn-login" disabled class="auth-submit">Submit</button>
+
+        <p class="auth-switch-text">
+          Don't have an account? <button id="switch-to-register" class="auth-switch-link" type="button">Sign up</button>
+        </p>
+
+        <button id="btn-forgot-password" class="secondary auth-subtle" type="button">Forgot password?</button>
+      </section>
+
+      <!-- ══ Forgot password ═══════════════════════════════════════ -->
+      <section class="auth-card" id="forgot-password-card" style="display:none">
+        <button id="btn-back-to-login" class="secondary auth-subtle">Back to Login</button>
+        <h3>Reset your password</h3>
+        <p class="note">Enter your email and we will send a reset link.</p>
+
+        <div class="auth-field">
+          <label>Email</label>
+          <input id="forgot-email" placeholder="Email address" autocomplete="email" />
+          <div id="forgot-email-help" class="note"></div>
+        </div>
+
+        <button id="btn-send-reset" disabled class="auth-submit">Send Reset Link</button>
+      </section>
+
+      <!-- ══ Reset password ════════════════════════════════════════ -->
+      <section class="auth-card" id="reset-password-card" style="display:none">
+        <button id="btn-back-to-login-2" class="secondary auth-subtle">Back to Login</button>
+        <h3>Create new password</h3>
+        <p class="note">Enter a secure password for your account.</p>
+
+        <div class="auth-field">
+          <label>New Password</label>
+          <div class="auth-input-row">
+            <input id="reset-password" placeholder="Choose a strong password" type="password"
+              autocomplete="new-password" />
+            <button id="toggle-reset-password" class="secondary" type="button">Show</button>
           </div>
+          <div id="reset-password-help" class="note">At least 8 characters, include letters and numbers.</div>
+        </div>
 
-          <button id="btn-register" disabled class="auth-submit">Submit</button>
+        <div class="auth-field">
+          <label>Confirm Password</label>
+          <input id="reset-confirm" placeholder="Confirm your password" type="password" autocomplete="new-password" />
+          <div id="reset-confirm-help" class="note"></div>
+        </div>
 
-          <p class="auth-switch-text">
-            Already have an account? <button id="switch-to-login" class="auth-switch-link" type="button">Login</button>
-          </p>
-        </section>
+        <button id="btn-reset-password" disabled class="auth-submit">Reset Password</button>
+      </section>
 
-        <!-- ══ Login ═════════════════════════════════════════════════ -->
-        <section class="auth-card" id="login-card" style="display:none">
-          <div class="auth-field">
-            <label>Email</label>
-            <input id="login-email" placeholder="Email address" autocomplete="username" />
-            <div id="login-email-help" class="note"></div>
-          </div>
+      <!-- Divider -->
+      <div class="auth-divider"><span>or continue with</span></div>
 
-          <div class="auth-field">
-            <label>Password</label>
-            <div class="auth-input-row">
-              <input id="login-password" placeholder="Enter your password" type="password" autocomplete="current-password" />
-              <button id="toggle-login-password" class="secondary" type="button">Show</button>
-            </div>
-            <div id="login-password-help" class="note">At least 8 characters, include letters and numbers.</div>
-          </div>
+      <!-- Google button -->
+      <button id="btn-google-login" class="auth-google-btn" type="button" disabled>
+        <svg class="google-icon" viewBox="0 0 48 48" width="20" height="20">
+          <path fill="#EA4335"
+            d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+          <path fill="#4285F4"
+            d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+          <path fill="#FBBC05"
+            d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+          <path fill="#34A853"
+            d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+        </svg>
+        Google account
+      </button>
+    </main>
+  </div>
 
-          <button id="btn-login" disabled class="auth-submit">Submit</button>
+  <div id="message" class="message hidden"></div>
+  <script src="/analytics.js"></script>
+  <script src="/auth.js"></script>
+</body>
 
-          <p class="auth-switch-text">
-            Don't have an account? <button id="switch-to-register" class="auth-switch-link" type="button">Sign up</button>
-          </p>
-
-          <button id="btn-forgot-password" class="secondary auth-subtle" type="button">Forgot password?</button>
-        </section>
-
-        <!-- ══ Forgot password ═══════════════════════════════════════ -->
-        <section class="auth-card" id="forgot-password-card" style="display:none">
-          <button id="btn-back-to-login" class="secondary auth-subtle">Back to Login</button>
-          <h3>Reset your password</h3>
-          <p class="note">Enter your email and we will send a reset link.</p>
-
-          <div class="auth-field">
-            <label>Email</label>
-            <input id="forgot-email" placeholder="Email address" autocomplete="email" />
-            <div id="forgot-email-help" class="note"></div>
-          </div>
-
-          <button id="btn-send-reset" disabled class="auth-submit">Send Reset Link</button>
-        </section>
-
-        <!-- ══ Reset password ════════════════════════════════════════ -->
-        <section class="auth-card" id="reset-password-card" style="display:none">
-          <button id="btn-back-to-login-2" class="secondary auth-subtle">Back to Login</button>
-          <h3>Create new password</h3>
-          <p class="note">Enter a secure password for your account.</p>
-
-          <div class="auth-field">
-            <label>New Password</label>
-            <div class="auth-input-row">
-              <input id="reset-password" placeholder="Choose a strong password" type="password" autocomplete="new-password" />
-              <button id="toggle-reset-password" class="secondary" type="button">Show</button>
-            </div>
-            <div id="reset-password-help" class="note">At least 8 characters, include letters and numbers.</div>
-          </div>
-
-          <div class="auth-field">
-            <label>Confirm Password</label>
-            <input id="reset-confirm" placeholder="Confirm your password" type="password" autocomplete="new-password" />
-            <div id="reset-confirm-help" class="note"></div>
-          </div>
-
-          <button id="btn-reset-password" disabled class="auth-submit">Reset Password</button>
-        </section>
-
-        <!-- Divider -->
-        <div class="auth-divider"><span>or continue with</span></div>
-
-        <!-- Google button -->
-        <button id="btn-google-login" class="auth-google-btn" type="button" disabled>
-          <svg class="google-icon" viewBox="0 0 48 48" width="20" height="20">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          Google account
-        </button>
-      </main>
-    </div>
-
-    <div id="message" class="message hidden"></div>
-    <script src="/analytics.js"></script>
-    <script src="/auth.js"></script>
-  </body>
 </html>
