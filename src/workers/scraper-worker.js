@@ -60,6 +60,33 @@ function normalizeListingId(value) {
   return String(value);
 }
 
+function resolveAlertLocation(alert) {
+  const fallbackLocation = String(alert?.location || '').trim();
+  if (fallbackLocation && !/^\/?rooms\//i.test(fallbackLocation)) {
+    return fallbackLocation;
+  }
+
+  const searchUrl = String(alert?.search_url || '').trim();
+  if (!searchUrl) return null;
+
+  try {
+    const url = new URL(searchUrl);
+    const queryLocation = String(
+      url.searchParams.get('query') || url.searchParams.get('location') || ''
+    ).trim();
+    if (queryLocation) return queryLocation;
+
+    const match = (url.pathname || '').match(/^\/s\/([^/?#]+)/i);
+    if (match?.[1]) {
+      return decodeURIComponent(match[1]).replace(/--/g, ', ').replace(/-/g, ' ').trim() || null;
+    }
+  } catch (_) {
+    // ignore invalid URLs and fall through
+  }
+
+  return null;
+}
+
 function buildSearchParams(alert, urlParams) {
   return {
     search_url: alert.search_url || null,
@@ -503,6 +530,7 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
   if (!listings.length) return 0;
   // Queue notification rows for Dreamlit to send; email_sent=false means pending.
   let queuedCount = 0;
+  const resolvedLocation = resolveAlertLocation(alert);
   for (const l of listings) {
     const payload = {
       email_type: emailType,
@@ -520,7 +548,7 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
         current_price: l.price ?? null,
       },
       alert: {
-        location: alert.location ?? null,
+        location: resolvedLocation,
         check_in: alert.check_in ?? null,
         check_out: alert.check_out ?? null,
         guests: alert.guests ?? null,
