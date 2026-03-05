@@ -1,7 +1,6 @@
 import scrapeQueue from './queue.js';
 import { query } from '../db/index.js';
 import { searchAirbnb } from './python-executor.js';
-import { checkICalAvailability } from '../services/ical.js';
 import logger from '../utils/logger.js';
 
 const PREMIUM_NOTIFICATION_COOLDOWN_MINUTES = Math.max(
@@ -13,7 +12,6 @@ const PREMIUM_MAX_EMAILS_PER_24H = Math.max(
   Number.parseInt(process.env.PREMIUM_MAX_EMAILS_PER_24H || '3', 10) || 3
 );
 const BASIC_NOTIFICATION_COOLDOWN_HOURS = 24;
-const ICAL_MONITORING_ENABLED = String(process.env.ENABLE_ICAL_MONITORING || '').toLowerCase() === 'true';
 
 // ─── Price extraction ────────────────────────────────────────────────────────
 // The pyairbnb price object looks like:
@@ -135,7 +133,6 @@ async function buildFreshAvailabilitySet(searchFn, searchParams, alertId) {
 export async function runSearchAlert(alertId, opts = {}) {
   const {
     searchFn       = searchAirbnb,
-    checkICalFn    = checkICalAvailability,
     dbQuery        = query,
   } = opts;
 
@@ -242,8 +239,6 @@ export async function runSearchAlert(alertId, opts = {}) {
   const newListings       = [];
   const priceDropListings = [];
   const freedUpListings   = [];
-  let newListingICalFailures = 0;
-  let existingListingICalFailures = 0;
 
   for (const listing of currentListings) {
     const id       = listing.id;
@@ -305,25 +300,6 @@ export async function runSearchAlert(alertId, opts = {}) {
 
     if (!wasKnown) {
       // ── NEW LISTING ──────────────────────────────────────────────────────
-      // For date-specific searches, verify availability via iCal before
-      // alerting — the search API returns all listings matching the filters
-      // but doesn't guarantee the exact dates are open.
-      if (ICAL_MONITORING_ENABLED && alert.check_in && alert.check_out) {
-        let available = false;
-        try {
-          available = await checkICalFn(id, alert.check_in, alert.check_out);
-        } catch (err) {
-          newListingICalFailures += 1;
-          available = true; // optimistic — better to over-notify than miss
-        }
-        if (!available) {
-          logger.debug(`New listing ${id} skipped — not available for requested dates`);
-          // Still record it so we can track it for "freed up" later
-          await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
-          continue;
-        }
-      }
-
       await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
       if (isBootstrapRun) {
         bootstrapNewCount += 1;
@@ -364,36 +340,8 @@ export async function runSearchAlert(alertId, opts = {}) {
         }
       }
 
-      // Freed up: listing was previously unavailable for these dates but now is
-      if (ICAL_MONITORING_ENABLED && alert.check_in && alert.check_out) {
-        try {
-          const nowAvailable = await checkICalFn(id, alert.check_in, alert.check_out);
-          if (nowAvailable) {
-            // Only fire if we haven't sent a freed-up alert for this listing recently
-            const alreadyNotified = await dbQuery(
-              `SELECT 1 FROM notifications
-               WHERE search_alert_id = $1 AND listing_id = $2
-                 AND notification_type = 'availability_change'
-                 AND sent_at > NOW() - INTERVAL '24 hours'
-               LIMIT 1`,
-              [alertId, id]
-            );
-            if (alreadyNotified.rows.length === 0) {
-              await upsertSearchResult(dbQuery, alertId, id, 'freed_up', null, price);
-              freedUpListings.push({ ...listing, price, url });
-            }
-          }
-        } catch (err) {
-          existingListingICalFailures += 1;
-        }
-      }
+      // iCal validation removed; "freed up" signals are disabled.
     }
-  }
-
-  if (newListingICalFailures > 0 || existingListingICalFailures > 0) {
-    logger.warn(
-      `Alert ${alertId} iCal summary — new-listing checks failed: ${newListingICalFailures}, existing-listing checks failed: ${existingListingICalFailures}`
-    );
   }
 
   // ── Mark last checked ──────────────────────────────────────────────────────
@@ -462,7 +410,6 @@ export async function runSearchAlert(alertId, opts = {}) {
           const availableNow = await buildFreshAvailabilitySet(searchFn, searchParams, alertId);
           const preValidatedBatches = [
             { listings: priceDropListings, emailType: 'price_drop',   notifType: 'price_drop' },
-            { listings: freedUpListings,   emailType: 'availability', notifType: 'availability_change' },
             { listings: newListings,       emailType: 'new',          notifType: 'new_listing' },
           ].map((batch) => ({
             ...batch,
@@ -585,77 +532,9 @@ function registerQueueProcessors() {
 // ─── Listing-specific alert (iCal availability tracking) ─────────────────────
   scrapeQueue.process('listing', async (job) => {
   const { alertId } = job.data;
-  logger.info(`Processing listing alert ${alertId}`);
-
-  const alertResult = await query(
-    `SELECT * FROM search_alerts WHERE id = $1 AND is_active = true AND alert_type = 'listing'`,
-    [alertId]
-  );
-  if (alertResult.rows.length === 0) {
-    return { status: 'skipped', reason: 'Alert not found or inactive' };
-  }
-  const alert = alertResult.rows[0];
-
-  let isAvailable = false;
-  if (ICAL_MONITORING_ENABLED) {
-    try {
-      isAvailable = await checkICalAvailability(alert.listing_id, alert.check_in, alert.check_out);
-    } catch (err) {
-      logger.warn(`Listing alert ${alertId} iCal check failed; skipping availability notification for this run`);
-    }
-  }
-
-  if (isAvailable) {
-    const alreadyNotified = await query(
-      `SELECT 1 FROM notifications
-       WHERE search_alert_id = $1 AND notification_type = 'availability_change'
-         AND sent_at > NOW() - INTERVAL '24 hours'
-       LIMIT 1`,
-      [alertId]
-    );
-
-    if (alreadyNotified.rows.length === 0) {
-      let availabilityImageUrl = null;
-      try {
-        const listingRow = await query(
-          `SELECT photos FROM listings WHERE listing_id = $1 LIMIT 1`,
-          [alert.listing_id]
-        );
-        const photos = listingRow.rows[0]?.photos;
-        if (Array.isArray(photos) && photos.length > 0) {
-          availabilityImageUrl = photos[0]?.url || photos[0] || null;
-        }
-      } catch (err) {
-        logger.warn(`Failed to load listing image for availability alert ${alertId}: ${err.message}`);
-      }
-
-      const payload = {
-        email_type: 'availability',
-        listing: {
-          id: alert.listing_id ?? null,
-          name: 'Your tracked listing is now available!',
-          url: alert.listing_url ?? null,
-          image_url: availabilityImageUrl,
-        },
-        alert: {
-          check_in: alert.check_in ?? null,
-          check_out: alert.check_out ?? null,
-        },
-      };
-      await query(
-        `INSERT INTO notifications (user_id, search_alert_id, listing_id, notification_type, email_sent, payload)
-         VALUES ($1, $2, $3, 'availability_change', false, $4::jsonb)`,
-        [alert.user_id, alertId, alert.listing_id, JSON.stringify(payload)]
-      );
-      await query(
-        `UPDATE search_alerts SET last_notified = CURRENT_TIMESTAMP, notification_count = notification_count + 1 WHERE id = $1`,
-        [alertId]
-      );
-    }
-  }
-
+  logger.info(`Listing alert ${alertId} skipped (iCal-based listing alerts disabled)`);
   await query(`UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`, [alertId]);
-  return { status: 'success', alertId, isAvailable };
+  return { status: 'skipped', alertId, reason: 'iCal-based listing alerts disabled' };
   });
 
   logger.info('🔄 Worker started');
