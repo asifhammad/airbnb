@@ -214,6 +214,9 @@ router.post('/url', authenticateToken, async (req, res) => {
     if (!isAirbnbHostname(urlParams.hostname)) {
       return res.status(400).json({ error: 'URL must be from airbnb.com' });
     }
+    if (!/^\/s\/[^/]+/i.test(urlParams.pathname || '')) {
+      return res.status(400).json({ error: 'Please paste an Airbnb search URL (not a listing URL)' });
+    }
 
     if (req.user.subscription_tier === 'free') {
       const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);

@@ -42,7 +42,10 @@
 
       <!-- ── Create alert ─────────────────────────────────────────────── -->
       <section class="card hidden" id="create-alert-card">
-        <h2>Create alert</h2>
+        <div class="section-header" style="display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <h2 style="margin:0">Create alert</h2>
+          <button id="btn-show-search-help" class="link-like" type="button">Show me how</button>
+        </div>
 
         <!-- Free user notice -->
         <div id="free-trial-notice"
@@ -195,6 +198,39 @@
               <button id="search-open" class="secondary">Open search</button>
               <button id="search-copy">Copy link</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── How to set up a search alert modal ─────────────────────────────── -->
+      <div id="search-help-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="search-help-title">
+        <div class="modal-backdrop" id="search-help-backdrop"></div>
+        <div class="modal-content" style="max-width:760px">
+          <button id="search-help-close" class="modal-close">×</button>
+          <div id="search-help-body" style="padding:6px 8px 8px">
+            <h2 id="search-help-title" style="margin:4px 0 12px">How to Set a Search Alert</h2>
+            <ol class="search-help-steps">
+              <li>
+                <h3>Go to Airbnb and run a search</h3>
+                <p>Visit Airbnb, log into your account, and perform a normal search for the destination and dates you are interested in.</p>
+                <img class="search-help-image" src="/1440x380.png" alt="Airbnb search bar with destination and dates selected" loading="lazy" />
+              </li>
+              <li>
+                <h3>Apply your preferred filters</h3>
+                <p>On the search results page, apply the filters you want included in your alert (dates, price range, guests, property type, and amenities).</p>
+                <img class="search-help-image" src="/CleanShot%202026-03-04%20at%2007.35.11@2x.png" alt="Airbnb filters panel showing type of place, price range, and rooms" loading="lazy" />
+              </li>
+              <li>
+                <h3>Copy the search URL from Airbnb</h3>
+                <p>Once your filters are set, copy the full URL from your browser address bar.</p>
+                <img class="search-help-image" src="/CleanShot%202026-03-04%20at%2007.35.51@2x.png" alt="Browser address bar highlighting Airbnb search URL" loading="lazy" />
+              </li>
+              <li>
+                <h3>Paste the URL in Alert Buzz and save</h3>
+                <p>Paste the URL into the field above and click <strong>Save Alert</strong>. You’ll receive email notifications when matches are detected.</p>
+                <img class="search-help-image" src="/CleanShot%202026-03-04%20at%2007.37.03@2x.png" alt="Alert Buzz create alert section with pasted search URL and Save Alert button" loading="lazy" />
+              </li>
+            </ol>
           </div>
         </div>
       </div>

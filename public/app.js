@@ -146,6 +146,7 @@ async function createUrlAlert() {
       return showMessage('Please enter a valid URL', true);
     }
     if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from airbnb.com', true);
+    if (!/^\/s\/[^/]+/i.test(parsedUrl.pathname || '')) return showMessage('Please paste an Airbnb search URL (not a listing URL)', true);
     const res = await apiRequest('POST', '/api/alerts/url', { search_url });
     // Avoid firing external automation tied to `alert_created` (which was sending a confirmation email).
     // Keep product analytics under a non-automated event name.
@@ -288,15 +289,27 @@ function getAlertTitle(a) {
       return normalizedLocation;
     }
   }
-  if (a.listing_url && String(a.listing_url).trim()) return String(a.listing_url).trim();
+  if (a.listing_url && String(a.listing_url).trim()) {
+    const listingUrl = String(a.listing_url).trim();
+    // Search alerts should not render legacy listing URLs as titles.
+    if (!(a.alert_type === 'search' && /\/rooms\/\d+/i.test(listingUrl))) {
+      return listingUrl;
+    }
+  }
   if (a.search_url && String(a.search_url).trim()) {
     try {
       const u = new URL(a.search_url);
       const query = u.searchParams.get('query');
       if (query && query.trim()) return query.trim();
-      return `${u.hostname}${u.pathname}`;
+      const searchPathMatch = (u.pathname || '').match(/^\/s\/([^/?#]+)/i);
+      if (searchPathMatch?.[1]) {
+        return decodeURIComponent(searchPathMatch[1]).replace(/--/g, ', ').replace(/-/g, ' ').trim();
+      }
+      // Do not show raw listing URLs for legacy bad data.
+      if (/^\/rooms\/\d+/i.test(u.pathname || '')) return 'Search alert';
+      return 'Search alert';
     } catch (e) {
-      return String(a.search_url).trim();
+      return 'Search alert';
     }
   }
   if (a.listing_id) return `Listing ${a.listing_id}`;
@@ -939,6 +952,7 @@ function init() {
 
   safeOn('#btn-logout',           handleLogout);
   safeOn('#btn-create-url-alert', createUrlAlert);
+  safeOn('#btn-show-search-help', showSearchHelpModal);
   safeOn('#btn-refresh',          loadAlerts);
   safeKey('#alert-search-url',    createUrlAlert);
 
@@ -997,6 +1011,9 @@ function init() {
   safeOn('#btn-upgrade-now', () => { window.location.href = '/billing'; });
   safeOn('#alert-created-close', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
   const _acBackdrop = $('#alert-created-backdrop'); if (_acBackdrop) _acBackdrop.addEventListener('click', () => { const m = $('#alert-created-modal'); if (m) m.classList.add('hidden'); });
+  safeOn('#search-help-close', hideSearchHelpModal);
+  const _searchHelpBackdrop = $('#search-help-backdrop');
+  if (_searchHelpBackdrop) _searchHelpBackdrop.addEventListener('click', hideSearchHelpModal);
 
   setupAffiliateLinks();
   showLoggedInState();
@@ -1021,6 +1038,18 @@ function showAlertCreatedModal() {
   const modal = $('#alert-created-modal');
   if (!modal) return;
   modal.classList.remove('hidden');
+}
+
+function showSearchHelpModal() {
+  const modal = $('#search-help-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+}
+
+function hideSearchHelpModal() {
+  const modal = $('#search-help-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
 }
 
 // Show the limit/upgrade modal to Free/Basic users when they try to add >1 search
