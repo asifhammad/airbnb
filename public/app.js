@@ -281,7 +281,13 @@ function formatDateForDisplay(d) {
 function getAlertTitle(a) {
   if (!a) return 'Alert';
 
-  if (a.location && String(a.location).trim()) return String(a.location).trim();
+  if (a.location && String(a.location).trim()) {
+    const normalizedLocation = String(a.location).trim();
+    // Ignore legacy bad values where listing path was stored as "location".
+    if (!/^\/?rooms\/\d+/i.test(normalizedLocation)) {
+      return normalizedLocation;
+    }
+  }
   if (a.listing_url && String(a.listing_url).trim()) return String(a.listing_url).trim();
   if (a.search_url && String(a.search_url).trim()) {
     try {
