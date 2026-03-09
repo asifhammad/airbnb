@@ -5,6 +5,7 @@ import { addSearchJob, addListingJob } from '../workers/queue.js';
 import parseListingUrl from '../utils/parseListingUrl.js';
 import { getListingDetails } from '../workers/python-executor.js';
 import parseSearchUrl from '../utils/parseSearchUrl.js';
+import { resolveCurrentSubscriptionTier } from '../utils/subscriptionTier.js';
 
 const router = express.Router();
 const FREE_TRIAL_DURATION_DAYS = 7;
@@ -27,6 +28,16 @@ async function isWithinFreeTrialWindow(userId) {
   if (!createdAt) return false;
   const trialEnd = new Date(createdAt).getTime() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000;
   return Date.now() <= trialEnd;
+}
+
+async function resolveRequestSubscriptionTier(req) {
+  const subscriptionTier = await resolveCurrentSubscriptionTier({
+    userId: req.user?.userId,
+    tokenTier: req.user?.subscription_tier,
+    dbQuery: query
+  });
+  req.user.subscription_tier = subscriptionTier;
+  return subscriptionTier;
 }
 
 // Get all alerts for user
@@ -82,6 +93,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // Create new search alert
 router.post('/search', authenticateToken, async (req, res) => {
   try {
+    const subscriptionTier = await resolveRequestSubscriptionTier(req);
     const {
       location,
       check_in,
@@ -105,7 +117,7 @@ router.post('/search', authenticateToken, async (req, res) => {
       });
     }
 
-    if (req.user.subscription_tier === 'free') {
+    if (subscriptionTier === 'free') {
       const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
       if (!withinTrialWindow) {
         return res.status(403).json({
@@ -126,8 +138,8 @@ router.post('/search', authenticateToken, async (req, res) => {
       [req.user.userId]
     );
     
-    const maxAlerts = req.user.subscription_tier === 'premium' ? 10 : 1;
-    const isFreeTrial = req.user.subscription_tier === 'free' || req.user.subscription_tier === 'basic';
+    const maxAlerts = subscriptionTier === 'premium' ? 10 : 1;
+    const isFreeTrial = subscriptionTier === 'free' || subscriptionTier === 'basic';
     const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
@@ -135,7 +147,7 @@ router.post('/search', authenticateToken, async (req, res) => {
     const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
 
     // Check limits
-    if (req.user.subscription_tier === 'free' && totalAlerts > 0) {
+    if (subscriptionTier === 'free' && totalAlerts > 0) {
       return res.status(403).json({
         error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
         upgrade_required: true
@@ -196,6 +208,7 @@ router.post('/search', authenticateToken, async (req, res) => {
 // Create new URL-based search alert
 router.post('/url', authenticateToken, async (req, res) => {
   try {
+    const subscriptionTier = await resolveRequestSubscriptionTier(req);
     const { search_url } = req.body;
 
     if (!search_url) {
@@ -218,7 +231,7 @@ router.post('/url', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Please paste an Airbnb search URL (not a listing URL)' });
     }
 
-    if (req.user.subscription_tier === 'free') {
+    if (subscriptionTier === 'free') {
       const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
       if (!withinTrialWindow) {
         return res.status(403).json({
@@ -239,8 +252,8 @@ router.post('/url', authenticateToken, async (req, res) => {
       [req.user.userId]
     );
     
-    const maxAlerts = req.user.subscription_tier === 'premium' ? 10 : 1;
-    const isFreeTrial = req.user.subscription_tier === 'free' || req.user.subscription_tier === 'basic';
+    const maxAlerts = subscriptionTier === 'premium' ? 10 : 1;
+    const isFreeTrial = subscriptionTier === 'free' || subscriptionTier === 'basic';
     const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
@@ -248,7 +261,7 @@ router.post('/url', authenticateToken, async (req, res) => {
     const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
 
     // Check limits
-    if (req.user.subscription_tier === 'free' && totalAlerts > 0) {
+    if (subscriptionTier === 'free' && totalAlerts > 0) {
       return res.status(403).json({
         error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
         upgrade_required: true
@@ -325,6 +338,7 @@ router.post('/url', authenticateToken, async (req, res) => {
 // Create new listing alert (track specific listing)
 router.post('/listing', authenticateToken, async (req, res) => {
   try {
+    const subscriptionTier = await resolveRequestSubscriptionTier(req);
     // Accept either explicit listing_id or a listing_url that contains the id + dates
   const { listing_id: bodyListingId, listing_url: bodyListingUrl, check_in: bodyCheckIn, check_out: bodyCheckOut } = req.body;
 
@@ -347,7 +361,7 @@ router.post('/listing', authenticateToken, async (req, res) => {
       });
     }
 
-    if (req.user.subscription_tier === 'free') {
+    if (subscriptionTier === 'free') {
       const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
       if (!withinTrialWindow) {
         return res.status(403).json({
@@ -368,8 +382,8 @@ router.post('/listing', authenticateToken, async (req, res) => {
       [req.user.userId]
     );
     
-    const maxAlerts = req.user.subscription_tier === 'premium' ? 10 : 1;
-    const isFreeTrial = req.user.subscription_tier === 'free' || req.user.subscription_tier === 'basic';
+    const maxAlerts = subscriptionTier === 'premium' ? 10 : 1;
+    const isFreeTrial = subscriptionTier === 'free' || subscriptionTier === 'basic';
     const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
@@ -377,7 +391,7 @@ router.post('/listing', authenticateToken, async (req, res) => {
     const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
 
     // Check limits
-    if (req.user.subscription_tier === 'free' && totalAlerts > 0) {
+    if (subscriptionTier === 'free' && totalAlerts > 0) {
       return res.status(403).json({
         error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
         upgrade_required: true
