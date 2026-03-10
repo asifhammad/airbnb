@@ -1,10 +1,12 @@
 // Utility to parse Airbnb listing/search URLs and extract useful parameters
+import { isAirbnbHostname } from './isAirbnbHostname.js';
+
 export function parseListingUrl(urlString) {
   try {
     const url = new URL(urlString);
 
     // only accept airbnb domains
-    if (!url.hostname.includes('airbnb.com')) return null;
+    if (!isAirbnbHostname(url.hostname)) return null;
 
     const parts = url.pathname.split('/').filter(Boolean);
 

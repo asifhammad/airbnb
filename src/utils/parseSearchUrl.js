@@ -1,9 +1,11 @@
 // Parse an Airbnb search URL and extract commonly-used filters
 // Returns an object mapping to the application's search_alerts columns plus rawParams
+import { isAirbnbHostname } from './isAirbnbHostname.js';
+
 export function parseSearchUrl(urlString) {
   try {
     const url = new URL(urlString);
-    if (!url.hostname.includes('airbnb.com')) return null;
+    if (!isAirbnbHostname(url.hostname)) return null;
 
     const sp = url.searchParams;
 

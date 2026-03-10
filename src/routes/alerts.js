@@ -6,15 +6,10 @@ import parseListingUrl from '../utils/parseListingUrl.js';
 import { getListingDetails } from '../workers/python-executor.js';
 import parseSearchUrl from '../utils/parseSearchUrl.js';
 import { resolveCurrentSubscriptionTier } from '../utils/subscriptionTier.js';
+import isAirbnbHostname from '../utils/isAirbnbHostname.js';
 
 const router = express.Router();
 const FREE_TRIAL_DURATION_DAYS = 7;
-
-function isAirbnbHostname(hostname) {
-  if (!hostname) return false;
-  const normalized = String(hostname).toLowerCase();
-  return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
-}
 
 async function isWithinFreeTrialWindow(userId) {
   const result = await query(
@@ -225,7 +220,7 @@ router.post('/url', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid URL format' });
     }
     if (!isAirbnbHostname(urlParams.hostname)) {
-      return res.status(400).json({ error: 'URL must be from airbnb.com' });
+      return res.status(400).json({ error: 'URL must be from an Airbnb domain' });
     }
     if (!/^\/s\/[^/]+/i.test(urlParams.pathname || '')) {
       return res.status(400).json({ error: 'Please paste an Airbnb search URL (not a listing URL)' });
