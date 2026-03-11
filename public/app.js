@@ -25,8 +25,15 @@ function identifyUser(distinctId, props) {
 
 function isAirbnbHostname(hostname) {
   if (!hostname) return false;
-  const normalized = String(hostname).toLowerCase();
-  return normalized === 'airbnb.com' || normalized.endsWith('.airbnb.com');
+  const normalized = String(hostname).toLowerCase().replace(/\.+$/, '');
+  const labels = normalized.split('.').filter(Boolean);
+  if (labels.length < 2) return false;
+  const secondLevel = labels[labels.length - 2];
+  if (secondLevel === 'airbnb') return true;
+  const thirdLevel = labels[labels.length - 3];
+  if (thirdLevel !== 'airbnb') return false;
+  const allowedSecondLevel = new Set(['com', 'co']);
+  return allowedSecondLevel.has(secondLevel);
 }
 
 function escapeHtml(value) {
@@ -145,7 +152,7 @@ async function createUrlAlert() {
     } catch (e) {
       return showMessage('Please enter a valid URL', true);
     }
-    if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from airbnb.com', true);
+    if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from an Airbnb domain', true);
     if (!/^\/s\/[^/]+/i.test(parsedUrl.pathname || '')) return showMessage('Please paste an Airbnb search URL (not a listing URL)', true);
     const res = await apiRequest('POST', '/api/alerts/url', { search_url });
     // Avoid firing external automation tied to `alert_created` (which was sending a confirmation email).
