@@ -1082,20 +1082,10 @@ async function ensureCanCreateSearchAlert() {
     ]);
     const tier = meRes?.user?.subscription_tier;
     if (tier === 'premium') return true;
-    if (tier === 'free') {
-      const createdAt = meRes?.user?.created_at ? new Date(meRes.user.created_at).getTime() : null;
-      if (createdAt && !Number.isNaN(createdAt)) {
-        const trialEndsAt = createdAt + (7 * 24 * 60 * 60 * 1000);
-        if (Date.now() > trialEndsAt) {
-          showLimitModal();
-          return false;
-        }
-      }
-    }
     const alerts = alertsRes.alerts || [];
     if (tier === 'free') {
-      const totalSearchCount = alerts.filter(a => a.alert_type === 'search').length;
-      if (totalSearchCount >= 1) { showLimitModal(); return false; }
+      const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
+      if (activeSearchCount >= 1) { showLimitModal(); return false; }
       return true;
     }
     const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
