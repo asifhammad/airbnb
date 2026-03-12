@@ -112,39 +112,35 @@ router.post('/search', authenticateToken, async (req, res) => {
       });
     }
 
-    if (subscriptionTier === 'free') {
-      const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
-      if (!withinTrialWindow) {
-        return res.status(403).json({
-          error: `Your ${FREE_TRIAL_DURATION_DAYS}-day free trial has ended. Upgrade to create alerts.`,
-          upgrade_required: true
-        });
-      }
-    }
+    const withinTrialWindow = subscriptionTier === 'free'
+      ? await isWithinFreeTrialWindow(req.user.userId)
+      : false;
 
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE is_free_trial = true AND is_active = true AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)) as free_trial_count,
          COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count,
-         COUNT(*) as total_alert_count
+         COUNT(*) FILTER (WHERE is_active = true) as active_alert_count
        FROM search_alerts 
        WHERE user_id = $1`,
       [req.user.userId]
     );
     
     const maxAlerts = subscriptionTier === 'premium' ? 10 : 1;
-    const isFreeTrial = subscriptionTier === 'free' || subscriptionTier === 'basic';
-    const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
+    const isFreeTrial = subscriptionTier === 'basic' || (subscriptionTier === 'free' && withinTrialWindow);
+    const expiresAt = isFreeTrial
+      ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000)
+      : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
-    const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
+    const activeAlerts = parseInt(alertCheck.rows[0].active_alert_count);
 
     // Check limits
-    if (subscriptionTier === 'free' && totalAlerts > 0) {
+    if (subscriptionTier === 'free' && activeAlerts >= 1) {
       return res.status(403).json({
-        error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
+        error: 'Free tier allows one active alert at a time. Deactivate your existing alert to create another.',
         upgrade_required: true
       });
     }
@@ -226,39 +222,35 @@ router.post('/url', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Please paste an Airbnb search URL (not a listing URL)' });
     }
 
-    if (subscriptionTier === 'free') {
-      const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
-      if (!withinTrialWindow) {
-        return res.status(403).json({
-          error: `Your ${FREE_TRIAL_DURATION_DAYS}-day free trial has ended. Upgrade to create alerts.`,
-          upgrade_required: true
-        });
-      }
-    }
+    const withinTrialWindow = subscriptionTier === 'free'
+      ? await isWithinFreeTrialWindow(req.user.userId)
+      : false;
 
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE is_free_trial = true AND is_active = true AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)) as free_trial_count,
          COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count,
-         COUNT(*) as total_alert_count
+         COUNT(*) FILTER (WHERE is_active = true) as active_alert_count
        FROM search_alerts 
        WHERE user_id = $1`,
       [req.user.userId]
     );
     
     const maxAlerts = subscriptionTier === 'premium' ? 10 : 1;
-    const isFreeTrial = subscriptionTier === 'free' || subscriptionTier === 'basic';
-    const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
+    const isFreeTrial = subscriptionTier === 'basic' || (subscriptionTier === 'free' && withinTrialWindow);
+    const expiresAt = isFreeTrial
+      ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000)
+      : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
-    const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
+    const activeAlerts = parseInt(alertCheck.rows[0].active_alert_count);
 
     // Check limits
-    if (subscriptionTier === 'free' && totalAlerts > 0) {
+    if (subscriptionTier === 'free' && activeAlerts >= 1) {
       return res.status(403).json({
-        error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
+        error: 'Free tier allows one active alert at a time. Deactivate your existing alert to create another.',
         upgrade_required: true
       });
     }
@@ -356,39 +348,35 @@ router.post('/listing', authenticateToken, async (req, res) => {
       });
     }
 
-    if (subscriptionTier === 'free') {
-      const withinTrialWindow = await isWithinFreeTrialWindow(req.user.userId);
-      if (!withinTrialWindow) {
-        return res.status(403).json({
-          error: `Your ${FREE_TRIAL_DURATION_DAYS}-day free trial has ended. Upgrade to create alerts.`,
-          upgrade_required: true
-        });
-      }
-    }
+    const withinTrialWindow = subscriptionTier === 'free'
+      ? await isWithinFreeTrialWindow(req.user.userId)
+      : false;
 
     // Check if user already has an active free trial alert and count current alerts in one query
     const alertCheck = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE is_free_trial = true AND is_active = true AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)) as free_trial_count,
          COUNT(*) FILTER (WHERE is_active = true AND (is_free_trial = false OR expires_at IS NULL OR expires_at <= CURRENT_TIMESTAMP)) as paid_alert_count,
-         COUNT(*) as total_alert_count
+         COUNT(*) FILTER (WHERE is_active = true) as active_alert_count
        FROM search_alerts 
        WHERE user_id = $1`,
       [req.user.userId]
     );
     
     const maxAlerts = subscriptionTier === 'premium' ? 10 : 1;
-    const isFreeTrial = subscriptionTier === 'free' || subscriptionTier === 'basic';
-    const expiresAt = isFreeTrial ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000) : null;
+    const isFreeTrial = subscriptionTier === 'basic' || (subscriptionTier === 'free' && withinTrialWindow);
+    const expiresAt = isFreeTrial
+      ? new Date(Date.now() + FREE_TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000)
+      : null;
 
     const freeTrialCount = parseInt(alertCheck.rows[0].free_trial_count);
     const currentAlerts = parseInt(alertCheck.rows[0].paid_alert_count);
-    const totalAlerts = parseInt(alertCheck.rows[0].total_alert_count);
+    const activeAlerts = parseInt(alertCheck.rows[0].active_alert_count);
 
     // Check limits
-    if (subscriptionTier === 'free' && totalAlerts > 0) {
+    if (subscriptionTier === 'free' && activeAlerts >= 1) {
       return res.status(403).json({
-        error: 'Free tier includes one trial alert only. Upgrade to create another alert.',
+        error: 'Free tier allows one active alert at a time. Deactivate your existing alert to create another.',
         upgrade_required: true
       });
     }

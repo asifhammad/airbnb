@@ -32,7 +32,7 @@ export function startScheduler() {
          JOIN users u ON u.id = sa.user_id
          WHERE sa.is_active = true 
          AND (
-           (u.subscription_tier = 'basic' AND u.subscription_status = 'active')
+           (u.subscription_tier IN ('basic', 'free') AND u.subscription_status = 'active')
            OR (sa.is_free_trial = true AND sa.expires_at > NOW())
          )`
       );
@@ -42,7 +42,7 @@ export function startScheduler() {
         if (await enqueueAlert(alert, 'normal')) queued += 1;
       }
 
-      logger.info(`Queued ${queued}/${result.rows.length} basic tier and free trial alerts`);
+      logger.info(`Queued ${queued}/${result.rows.length} basic/free tier and free trial alerts`);
     } catch (error) {
       logger.error('Basic tier scheduling error:', error);
     }
@@ -143,7 +143,7 @@ export function startScheduler() {
   });
 
   logger.info('✅ Scheduler started');
-  logger.info('📅 Basic tier: Daily at 9 AM');
+  logger.info('📅 Basic/free tiers: Daily at 9 AM');
   logger.info('📅 Premium tier: Every hour');
   logger.info('🧹 Cleanup: Daily at 3 AM, weekly on Sunday at 2 AM');
 }
