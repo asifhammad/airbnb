@@ -57,25 +57,18 @@ async function getOrCreateStripeCustomer(user) {
   return customer.id;
 }
 
-// Queue billing-related transactional email events for Dreamlit (DB-triggered flow).
+// Queue billing-related email events for Dreamlit (DB-triggered flow).
 async function enqueueBillingEmailEvent(userId, eventType, payload = {}) {
   try {
-    const userRes = await query(
-      'SELECT email FROM users WHERE id = $1',
-      [userId]
-    );
-    const email = userRes.rows[0]?.email;
-    if (!email) return;
-
     await query(
-      `INSERT INTO transactional_email_events
-         (user_id, recipient_email, event_type, payload, status)
-       VALUES ($1, $2, $3, $4::jsonb, 'pending')`,
-      [userId, email, eventType, JSON.stringify(payload || {})]
+      `INSERT INTO notifications
+         (user_id, search_alert_id, listing_id, notification_type, email_sent, payload)
+       VALUES ($1, NULL, NULL, $2, false, $3::jsonb)`,
+      [userId, eventType, JSON.stringify(payload || {})]
     );
   } catch (err) {
-    // Do not break billing if the email-events table is unavailable.
-    logger.warn('Failed to enqueue billing email event:', err.message);
+    // Do not break billing if the notifications table is unavailable.
+    logger.warn('Failed to enqueue billing email notification:', err.message);
   }
 }
 

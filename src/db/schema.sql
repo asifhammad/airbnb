@@ -173,7 +173,15 @@ CREATE TABLE IF NOT EXISTS notifications (
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
   search_alert_id INTEGER REFERENCES search_alerts(id) ON DELETE CASCADE,
   listing_id VARCHAR(100),
-  notification_type VARCHAR(20) CHECK (notification_type IN ('new_listing', 'availability_change', 'price_drop')),
+  notification_type VARCHAR(32) CHECK (notification_type IN (
+    'new_listing',
+    'availability_change',
+    'price_drop',
+    'subscription_started',
+    'subscription_updated',
+    'subscription_canceled',
+    'invoice_payment_failed'
+  )),
   sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   email_sent BOOLEAN DEFAULT FALSE,
   email_error TEXT,
