@@ -1083,12 +1083,13 @@ async function ensureCanCreateSearchAlert() {
     const tier = meRes?.user?.subscription_tier;
     if (tier === 'premium') return true;
     const alerts = alertsRes.alerts || [];
+    const isActiveAlert = (a) => a && (a.is_active === true || a.is_active === 'true' || a.is_active === 1 || a.is_active === 't');
     if (tier === 'free') {
-      const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
+      const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && isActiveAlert(a)).length;
       if (activeSearchCount >= 1) { showLimitModal(); return false; }
       return true;
     }
-    const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && a.is_active).length;
+    const activeSearchCount = alerts.filter(a => a.alert_type === 'search' && isActiveAlert(a)).length;
     if (activeSearchCount >= 1) { showLimitModal(); return false; }
     return true;
   } catch {
