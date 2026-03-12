@@ -1,14 +1,10 @@
 import express from 'express';
-import Stripe from 'stripe';
 import { query } from '../db/index.js';
 import { authenticateToken } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { stripe, syncSubscription, fetchAndSyncSubscription } from '../services/stripeSubscriptions.js';
 
 const router = express.Router();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
-  apiVersion: '2023-10-16',
-});
-
 // ─── Plan config (single source of truth) ─────────────────────────────────────
 export const PLANS = {
   free: {
@@ -43,16 +39,6 @@ export const PLANS = {
     dbTier:    'premium',
   },
 };
-
-// Map a Stripe price ID back to a plan key
-function planKeyFromPriceId(priceId) {
-  return Object.entries(PLANS).find(([, p]) => p.priceId && p.priceId === priceId)?.[0] || null;
-}
-
-// Map plan key → subscription_tier for the users table
-function tierFromPlanKey(planKey) {
-  return PLANS[planKey]?.dbTier || 'free';
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,54 +119,8 @@ async function markWebhookEventProcessed(eventId) {
   }
 }
 
-// Upsert the local subscriptions row from a Stripe subscription object
-async function syncSubscription(sub) {
-  const planKey = planKeyFromPriceId(sub.items.data[0]?.price?.id);
-  const tier    = tierFromPlanKey(planKey);
-  const periodEnd = sub.current_period_end
-    ? new Date(sub.current_period_end * 1000)
-    : null;
-
-  // Find user by stripe_customer_id
-  const userRes = await query(
-    'SELECT id FROM users WHERE stripe_customer_id = $1',
-    [sub.customer]
-  );
-  if (!userRes.rows.length) return;
-  const userId = userRes.rows[0].id;
-
-  await query(
-    `INSERT INTO subscriptions
-       (user_id, stripe_subscription_id, stripe_price_id, plan, interval,
-        status, current_period_end, cancel_at_period_end, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CURRENT_TIMESTAMP)
-     ON CONFLICT (user_id) DO UPDATE SET
-       stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-       stripe_price_id        = EXCLUDED.stripe_price_id,
-       plan                   = EXCLUDED.plan,
-       interval               = EXCLUDED.interval,
-       status                 = EXCLUDED.status,
-       current_period_end     = EXCLUDED.current_period_end,
-       cancel_at_period_end   = EXCLUDED.cancel_at_period_end,
-       updated_at             = CURRENT_TIMESTAMP`,
-    [
-      userId,
-      sub.id,
-      sub.items.data[0]?.price?.id,
-      planKey?.replace(/_monthly|_yearly/, '') || 'basic', // 'basic' or 'premium'
-      sub.items.data[0]?.price?.recurring?.interval || null,
-      sub.status,
-      periodEnd,
-      sub.cancel_at_period_end,
-    ]
-  );
-
-  // Keep users.subscription_tier in sync for the JWT / alert limit checks
-  const activeStatuses = ['active', 'trialing'];
-  await query(
-    `UPDATE users SET subscription_tier = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-    [activeStatuses.includes(sub.status) ? tier : 'free', userId]
-  );
+function planMap() {
+  return PLANS;
 }
 
 // ─── GET /api/billing/subscription ───────────────────────────────────────────
@@ -323,7 +263,7 @@ export async function stripeWebhookHandler(req, res) {
         const session = event.data.object;
         if (session.mode === 'subscription' && session.subscription) {
           const sub = await stripe.subscriptions.retrieve(session.subscription);
-          await syncSubscription(sub);
+          await syncSubscription(sub, planMap());
           const userId = Number(session?.metadata?.userId);
           if (Number.isFinite(userId)) {
             await enqueueBillingEmailEvent(userId, 'subscription_started', {
@@ -338,7 +278,7 @@ export async function stripeWebhookHandler(req, res) {
 
       case 'customer.subscription.updated':
       case 'customer.subscription.created':
-        await syncSubscription(event.data.object);
+        await syncSubscription(event.data.object, planMap());
         {
           const sub = event.data.object;
           const user = await findUserByStripeCustomerId(sub.customer);
@@ -366,7 +306,10 @@ export async function stripeWebhookHandler(req, res) {
         );
         if (userRes.rows.length) {
           await query(
-            `UPDATE users SET subscription_tier = 'free', updated_at = CURRENT_TIMESTAMP
+            `UPDATE users
+             SET subscription_tier = 'free',
+                 subscription_status = 'cancelled',
+                 updated_at = CURRENT_TIMESTAMP
              WHERE id = $1`,
             [userRes.rows[0].id]
           );
@@ -394,6 +337,14 @@ export async function stripeWebhookHandler(req, res) {
             [invoice.subscription]
           );
           if (userRes.rows.length) {
+            await query(
+              `UPDATE users
+               SET subscription_tier = 'free',
+                   subscription_status = 'expired',
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [userRes.rows[0].user_id]
+            );
             await enqueueBillingEmailEvent(userRes.rows[0].user_id, 'invoice_payment_failed', {
               stripe_subscription_id: invoice.subscription,
               invoice_id: invoice.id || null,
@@ -401,6 +352,14 @@ export async function stripeWebhookHandler(req, res) {
               currency: invoice.currency || null,
             });
           }
+        }
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        if (invoice.subscription) {
+          await fetchAndSyncSubscription(invoice.subscription, planMap());
         }
         break;
       }

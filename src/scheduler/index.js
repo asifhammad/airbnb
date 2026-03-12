@@ -2,6 +2,8 @@ import cron from 'node-cron';
 import { query } from '../db/index.js';
 import { addSearchJob, addListingJob } from '../workers/queue.js';
 import logger from '../utils/logger.js';
+import { fetchAndSyncSubscription } from '../services/stripeSubscriptions.js';
+import { PLANS } from '../routes/billing.js';
 
 /**
  * Schedule periodic scraping jobs based on subscription tiers
@@ -120,6 +122,34 @@ export function startScheduler() {
     }
   });
 
+  // Reconcile Stripe subscriptions daily (4:30 AM) to guard against webhook misses
+  cron.schedule('30 4 * * *', async () => {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      logger.warn('Stripe reconciliation skipped: STRIPE_SECRET_KEY not configured');
+      return;
+    }
+    logger.info('Running daily Stripe subscription reconciliation...');
+    try {
+      const result = await query(
+        `SELECT stripe_subscription_id
+         FROM subscriptions
+         WHERE stripe_subscription_id IS NOT NULL
+           AND status IN ('active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'incomplete_expired')
+         ORDER BY updated_at DESC
+         LIMIT 200`
+      );
+      let synced = 0;
+      for (const row of result.rows) {
+        if (await fetchAndSyncSubscription(row.stripe_subscription_id, PLANS)) {
+          synced += 1;
+        }
+      }
+      logger.info(`Stripe reconciliation finished (${synced}/${result.rows.length} synced)`);
+    } catch (error) {
+      logger.error('Stripe reconciliation error:', error);
+    }
+  });
+
   // Deactivate expired free trial alerts (every hour)
   cron.schedule('0 * * * *', async () => {
     logger.info('Checking for expired free trial alerts...');
@@ -146,6 +176,7 @@ export function startScheduler() {
   logger.info('📅 Basic/free tiers: Daily at 9 AM');
   logger.info('📅 Premium tier: Every hour');
   logger.info('🧹 Cleanup: Daily at 3 AM, weekly on Sunday at 2 AM');
+  logger.info('🔁 Stripe reconciliation: Daily at 4:30 AM');
 }
 
 export default { startScheduler };

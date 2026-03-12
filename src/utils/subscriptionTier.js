@@ -12,14 +12,18 @@ export async function resolveCurrentSubscriptionTier({ userId, tokenTier, dbQuer
 
   try {
     const result = await dbQuery(
-      `SELECT subscription_tier
+      `SELECT subscription_tier, subscription_status
        FROM users
        WHERE id = $1
        LIMIT 1`,
       [userId]
     );
-    const dbTier = result?.rows?.[0]?.subscription_tier;
-    return normalizeSubscriptionTier(dbTier || fallbackTier);
+    const row = result?.rows?.[0];
+    if (!row) return fallbackTier;
+    if (row.subscription_status && row.subscription_status !== 'active') {
+      return 'free';
+    }
+    return normalizeSubscriptionTier(row.subscription_tier || fallbackTier);
   } catch (error) {
     log.warn?.('Failed to resolve current subscription tier from DB, using token tier fallback', {
       userId,
@@ -28,4 +32,3 @@ export async function resolveCurrentSubscriptionTier({ userId, tokenTier, dbQuer
     return fallbackTier;
   }
 }
-
