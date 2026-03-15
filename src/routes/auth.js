@@ -101,7 +101,7 @@ async function ensureLocalUserFromSupabase({ email, supabaseUserId, passwordHash
     const desiredTier =
       activePlan === 'premium' ? 'premium' :
       activePlan === 'basic' ? 'basic' :
-      'free';
+      row.subscription_tier && row.subscription_tier !== 'free' ? row.subscription_tier : 'free';
 
     if (row.subscription_tier !== desiredTier) {
       await query(

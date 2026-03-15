@@ -17,7 +17,11 @@ function normalizeUserStatus(stripeStatus) {
 function tierFromPlanKey(planKey) {
   if (planKey === 'premium') return 'premium';
   if (planKey === 'basic') return 'basic';
-  return 'free';
+  return null;
+}
+
+function normalizePlanKey(planKey) {
+  return planKey ? planKey.replace(/_monthly|_yearly/, '') : null;
 }
 
 function planKeyFromPriceId(priceId, priceMap) {
@@ -25,11 +29,25 @@ function planKeyFromPriceId(priceId, priceMap) {
     .find(([, p]) => p.priceId && p.priceId === priceId)?.[0] || null;
 }
 
+function inferPlanKeyFromPrice(price, priceMap) {
+  if (!price) return null;
+  const byId = planKeyFromPriceId(price.id, priceMap);
+  if (byId) return byId;
+  const lookup = String(price.lookup_key || '').toLowerCase();
+  const nickname = String(price.nickname || '').toLowerCase();
+  const candidate = `${lookup} ${nickname}`;
+  if (candidate.includes('premium')) return 'premium_monthly';
+  if (candidate.includes('basic')) return 'basic_monthly';
+  return null;
+}
+
 // Upsert the local subscriptions row from a Stripe subscription object
 export async function syncSubscription(sub, planMap) {
-  const priceId = sub.items.data[0]?.price?.id || null;
-  const planKey = priceId ? planKeyFromPriceId(priceId, planMap) : null;
-  const tier = tierFromPlanKey(planKey?.replace(/_monthly|_yearly/, '') || null);
+  const price = sub.items.data[0]?.price || null;
+  const priceId = price?.id || null;
+  const planKey = inferPlanKeyFromPrice(price, planMap);
+  const normalizedPlanKey = normalizePlanKey(planKey);
+  const tierFromPlan = tierFromPlanKey(normalizedPlanKey);
   const periodEnd = sub.current_period_end
     ? new Date(sub.current_period_end * 1000)
     : null;
@@ -41,6 +59,18 @@ export async function syncSubscription(sub, planMap) {
   );
   if (!userRes.rows.length) return;
   const userId = userRes.rows[0].id;
+
+  const existingRes = await query(
+    `SELECT subscription_tier
+     FROM users
+     WHERE id = $1`,
+    [userId]
+  );
+  const existingTier = existingRes.rows[0]?.subscription_tier || 'free';
+  const active = ACTIVE_STATUSES.has(sub.status);
+  const nextTier = active
+    ? (tierFromPlan || (existingTier !== 'free' ? existingTier : 'basic'))
+    : 'free';
 
   await query(
     `INSERT INTO subscriptions
@@ -60,8 +90,8 @@ export async function syncSubscription(sub, planMap) {
       userId,
       sub.id,
       priceId,
-      planKey?.replace(/_monthly|_yearly/, '') || 'basic', // 'basic' or 'premium'
-      sub.items.data[0]?.price?.recurring?.interval || null,
+      normalizedPlanKey || (existingTier !== 'free' ? existingTier : 'basic'),
+      price?.recurring?.interval || null,
       sub.status,
       periodEnd,
       sub.cancel_at_period_end,
@@ -69,7 +99,6 @@ export async function syncSubscription(sub, planMap) {
   );
 
   // Keep users.subscription_tier/status in sync for JWT + alert checks
-  const active = ACTIVE_STATUSES.has(sub.status);
   const subscriptionStatus = normalizeUserStatus(sub.status);
   await query(
     `UPDATE users
@@ -77,7 +106,7 @@ export async function syncSubscription(sub, planMap) {
          subscription_status = $2,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = $3`,
-    [active ? tier : 'free', subscriptionStatus, userId]
+    [nextTier, subscriptionStatus, userId]
   );
 }
 
