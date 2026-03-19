@@ -29,6 +29,7 @@ export function parseSearchUrl(urlString) {
     // price
     const price_min = asInt(sp.get('price_min')) || null;
     const price_max = asInt(sp.get('price_max')) || asInt(sp.get('price_max_input')) || null;
+    const currency = sp.get('currency') ? String(sp.get('currency')).toUpperCase() : null;
 
     // bounding box / map viewport (Airbnb sometimes encodes as ne_lat/ne_lng etc.)
     const ne_lat = sp.get('ne_lat') || sp.get('ne_latitude') || null;
@@ -92,6 +93,7 @@ export function parseSearchUrl(urlString) {
       infants: infants || null,
       price_min,
       price_max,
+      currency,
       amenities: amenitiesNorm,
       min_beds,
       guest_favorite,

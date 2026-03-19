@@ -58,6 +58,22 @@ function normalizeListingId(value) {
   return String(value);
 }
 
+function buildListingUrlWithAlert(listingUrlValue, alert) {
+  if (!listingUrlValue) return null;
+  const checkIn = alert?.check_in || null;
+  const checkOut = alert?.check_out || null;
+  if (!checkIn && !checkOut) return listingUrlValue;
+  try {
+    const url = new URL(listingUrlValue);
+    if (checkIn) url.searchParams.set('check_in', checkIn);
+    if (checkOut) url.searchParams.set('check_out', checkOut);
+    if (alert?.currency) url.searchParams.set('currency', String(alert.currency).toUpperCase());
+    return url.toString();
+  } catch (_) {
+    return listingUrlValue;
+  }
+}
+
 function resolveAlertLocation(alert) {
   const fallbackLocation = String(alert?.location || '').trim();
   if (fallbackLocation && !/^\/?rooms\//i.test(fallbackLocation)) {
@@ -85,6 +101,74 @@ function resolveAlertLocation(alert) {
   return null;
 }
 
+function inferCurrencyFromHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  const cc = host.split('.').pop() || '';
+  const currencyMap = {
+    ca: 'CAD',
+    us: 'USD',
+    fr: 'EUR',
+    de: 'EUR',
+    es: 'EUR',
+    it: 'EUR',
+    nl: 'EUR',
+    be: 'EUR',
+    at: 'EUR',
+    pt: 'EUR',
+    ie: 'EUR',
+    gr: 'EUR',
+    fi: 'EUR',
+    no: 'NOK',
+    se: 'SEK',
+    dk: 'DKK',
+    ch: 'CHF',
+    pl: 'PLN',
+    cz: 'CZK',
+    hu: 'HUF',
+    ro: 'RON',
+    bg: 'BGN',
+    uk: 'GBP',
+    au: 'AUD',
+    nz: 'NZD',
+    jp: 'JPY',
+    kr: 'KRW',
+    sg: 'SGD',
+    hk: 'HKD',
+    my: 'MYR',
+    th: 'THB',
+    id: 'IDR',
+    ph: 'PHP',
+    vn: 'VND',
+    tw: 'TWD',
+    in: 'INR',
+    br: 'BRL',
+    mx: 'MXN',
+    ar: 'ARS',
+    cl: 'CLP',
+    pe: 'PEN',
+    co: 'COP',
+    za: 'ZAR',
+    tr: 'TRY',
+    il: 'ILS',
+    ae: 'AED',
+  };
+  return currencyMap[cc] || null;
+}
+
+function resolveAlertCurrency(alert, urlParams) {
+  if (urlParams?.currency) return String(urlParams.currency).toUpperCase();
+  if (alert?.currency) return String(alert.currency).toUpperCase();
+  if (alert?.search_url) {
+    try {
+      const hostCurrency = inferCurrencyFromHost(new URL(alert.search_url).hostname);
+      if (hostCurrency) return hostCurrency;
+    } catch (_) {
+      // ignore malformed URLs
+    }
+  }
+  return 'USD';
+}
+
 function buildSearchParams(alert, urlParams) {
   return {
     search_url: alert.search_url || null,
@@ -101,7 +185,7 @@ function buildSearchParams(alert, urlParams) {
     guests:    alert.guests    || (urlParams && (parseInt(urlParams.adults || 0) + parseInt(urlParams.children || 0))) || 1,
     amenities: alert.amenities || (urlParams && (urlParams['amenities[]'] || urlParams.amenities)) || [],
     free_cancellation: alert.free_cancellation || false,
-    currency:  (urlParams && urlParams.currency) || 'USD',
+    currency:  resolveAlertCurrency(alert, urlParams),
     proxy_url: process.env.PROXY_URL || '',
 
     // Extra filters forwarded to Python for fallback search_all() path
@@ -479,12 +563,14 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
   let queuedCount = 0;
   const resolvedLocation = resolveAlertLocation(alert);
   for (const l of listings) {
+    const rawListingUrl = l.url ?? listingUrl(l);
+    const listingUrlWithDates = buildListingUrlWithAlert(rawListingUrl, alert);
     const payload = {
       email_type: emailType,
       listing: {
         id: l.id ?? null,
         name: l.name ?? null,
-        url: l.url ?? listingUrl(l),
+        url: listingUrlWithDates,
         image_url: listingCoverImage(l),
         address: l.address ?? null,
         rating: l.rating ?? null,
@@ -498,6 +584,7 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
         location: resolvedLocation,
         check_in: alert.check_in ?? null,
         check_out: alert.check_out ?? null,
+        currency: alert.currency ?? null,
         guests: alert.guests ?? null,
         price_min: alert.price_min ?? null,
         price_max: alert.price_max ?? null,

@@ -2,6 +2,8 @@ const $ = (sel) => document.querySelector(sel);
 const analytics = window.analytics || null;
 let currentUserTier = null;
 let cachedPublicConfig = null;
+let cachedAlerts = [];
+let currentAlertMeta = null;
 
 async function getPublicConfig() {
   if (cachedPublicConfig) return cachedPublicConfig;
@@ -54,6 +56,108 @@ function sanitizeExternalUrl(url) {
   } catch (_) {
     return '';
   }
+}
+
+function buildListingUrlWithContext(url, context) {
+  if (!url) return '';
+  if (!context) return url;
+  try {
+    const u = new URL(String(url));
+    if (context.check_in) u.searchParams.set('check_in', context.check_in);
+    if (context.check_out) u.searchParams.set('check_out', context.check_out);
+    if (context.currency) u.searchParams.set('currency', String(context.currency).toUpperCase());
+    return u.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
+function inferCurrencyFromHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  const cc = host.split('.').pop() || '';
+  const currencyMap = {
+    ca: 'CAD',
+    us: 'USD',
+    fr: 'EUR',
+    de: 'EUR',
+    es: 'EUR',
+    it: 'EUR',
+    nl: 'EUR',
+    be: 'EUR',
+    at: 'EUR',
+    pt: 'EUR',
+    ie: 'EUR',
+    gr: 'EUR',
+    fi: 'EUR',
+    no: 'NOK',
+    se: 'SEK',
+    dk: 'DKK',
+    ch: 'CHF',
+    pl: 'PLN',
+    cz: 'CZK',
+    hu: 'HUF',
+    ro: 'RON',
+    bg: 'BGN',
+    uk: 'GBP',
+    au: 'AUD',
+    nz: 'NZD',
+    jp: 'JPY',
+    kr: 'KRW',
+    sg: 'SGD',
+    hk: 'HKD',
+    my: 'MYR',
+    th: 'THB',
+    id: 'IDR',
+    ph: 'PHP',
+    vn: 'VND',
+    tw: 'TWD',
+    in: 'INR',
+    br: 'BRL',
+    mx: 'MXN',
+    ar: 'ARS',
+    cl: 'CLP',
+    pe: 'PEN',
+    co: 'COP',
+    za: 'ZAR',
+    tr: 'TRY',
+    il: 'ILS',
+    ae: 'AED',
+  };
+  return currencyMap[cc] || null;
+}
+
+function requestCurrencyConfirmation(defaultCurrency) {
+  return new Promise((resolve) => {
+    const modal = $('#currency-modal');
+    const select = $('#currency-select');
+    if (!modal || !select) return resolve(defaultCurrency || 'USD');
+
+    const normalized = String(defaultCurrency || 'USD').toUpperCase();
+    if (![...select.options].some(opt => opt.value === normalized)) {
+      const opt = document.createElement('option');
+      opt.value = normalized;
+      opt.textContent = `${normalized} — Custom`;
+      select.appendChild(opt);
+    }
+    select.value = normalized;
+
+    const close = () => {
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden', 'true');
+    };
+    const confirmBtn = $('#currency-confirm');
+    const cancelBtn = $('#currency-cancel');
+    const closeBtn = $('#currency-close');
+    const backdrop = $('#currency-backdrop');
+
+    if (confirmBtn) confirmBtn.onclick = () => { close(); resolve(select.value); };
+    if (cancelBtn) cancelBtn.onclick = () => { close(); resolve(null); };
+    if (closeBtn) closeBtn.onclick = () => { close(); resolve(null); };
+    if (backdrop) backdrop.onclick = () => { close(); resolve(null); };
+
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+  });
 }
 
 /**
@@ -154,7 +258,11 @@ async function createUrlAlert() {
     }
     if (!isAirbnbHostname(parsedUrl.hostname)) return showMessage('URL must be from an Airbnb domain', true);
     if (!/^\/s\/[^/]+/i.test(parsedUrl.pathname || '')) return showMessage('Please paste an Airbnb search URL (not a listing URL)', true);
-    const res = await apiRequest('POST', '/api/alerts/url', { search_url });
+    const urlCurrency = parsedUrl.searchParams.get('currency');
+    const inferredCurrency = inferCurrencyFromHost(parsedUrl.hostname) || 'USD';
+    const currency = await requestCurrencyConfirmation(urlCurrency ? String(urlCurrency).toUpperCase() : inferredCurrency);
+    if (!currency) return;
+    const res = await apiRequest('POST', '/api/alerts/url', { search_url, currency });
     // Avoid firing external automation tied to `alert_created` (which was sending a confirmation email).
     // Keep product analytics under a non-automated event name.
     track('alert_created_ui', { source: 'search_url', is_free_trial: Boolean(res?.is_free_trial) });
@@ -435,6 +543,7 @@ async function createSearchAlert() {
 
 async function viewListingsForAlert(alertId) {
   try {
+    currentAlertMeta = cachedAlerts.find(a => String(a.id) === String(alertId)) || null;
     $('#listings-for-id').textContent = alertId;
     const res = await apiRequest('GET', `/api/listings/alert/${alertId}`);
     renderListings(res.listings || []);
@@ -470,7 +579,8 @@ function renderListings(listings) {
     card.className = 'listing-card';
     const photoUrlRaw = (l.photos && l.photos.length) ? (l.photos[0].url || l.photos[0]) : '';
     const photoUrl = sanitizeExternalUrl(photoUrlRaw);
-    const listingUrl = sanitizeExternalUrl(l.url || (id ? `https://www.airbnb.com/rooms/${id}` : ''));
+    const listingUrlRaw = sanitizeExternalUrl(l.url || (id ? `https://www.airbnb.com/rooms/${id}` : ''));
+    const listingUrl = buildListingUrlWithContext(listingUrlRaw, currentAlertMeta);
     const listingName = escapeHtml(l.name || 'listing');
     const listingAddress = escapeHtml((l.address || '').substring(0, 120));
     const ratingValue = escapeHtml(l.rating ? (l.rating.guest_satisfaction || l.rating) : '—');
@@ -724,7 +834,13 @@ function renderPreviewResults(results, total) {
     if (priceAmt >= (previewState.params?.premium_min_price || previewState.params?.min_price || 200)) badges.push('<span class="badge premium">Premium</span>');
     if (reviews >= (previewState.params?.popular_min_reviews || 50) || (ratingVal >= (previewState.params?.popular_min_rating || 4.7) && reviews >= 10)) badges.push('<span class="badge popular">Popular</span>');
 
-    const listingUrl = sanitizeExternalUrl(l.url || (id ? `https://www.airbnb.com/rooms/${id}` : ''));
+    const listingUrlRaw = sanitizeExternalUrl(l.url || (id ? `https://www.airbnb.com/rooms/${id}` : ''));
+    const previewContext = {
+      check_in: previewState.params?.check_in || previewState.params?.checkin || null,
+      check_out: previewState.params?.check_out || previewState.params?.checkout || null,
+      currency: previewState.params?.currency || null,
+    };
+    const listingUrl = buildListingUrlWithContext(listingUrlRaw, previewContext);
     const listingName = escapeHtml(l.name || 'listing');
     const listingSub = escapeHtml((l.address || l.url || '').substring(0, 120));
     const ratingValue = escapeHtml(l.rating ? (l.rating.guest_satisfaction || l.rating.value || l.rating) : '—');
@@ -795,7 +911,12 @@ async function loadNotifications() {
         ? `<span style="color:#48bb78;margin-left:8px">&#x25bc; ${escapeHtml((n.old_price - n.new_price).toFixed(0))} (${escapeHtml(Number(n.old_price).toFixed(0))} → ${escapeHtml(Number(n.new_price).toFixed(0))})</span>`
         : '';
       const listingName = escapeHtml(n.listing_name || n.listing_id || 'Listing');
-      const listingUrl = sanitizeExternalUrl(n.listing_url || '');
+      const listingUrlRaw = sanitizeExternalUrl(n.listing_url || '');
+      const listingUrl = buildListingUrlWithContext(listingUrlRaw, {
+        check_in: n.check_in || null,
+        check_out: n.check_out || null,
+        currency: n.currency || null,
+      });
       const listingImage = sanitizeExternalUrl(n.listing_image_url || '');
       const canOpenModal = !!(n.listing_id && /^\d+$/.test(String(n.listing_id)));
       const notifType = escapeHtml(String(n.notification_type || '').replace('_', ' '));
@@ -845,6 +966,7 @@ async function loadAlerts() {
   try {
     const res = await apiRequest('GET', '/api/alerts');
     const alerts = Array.isArray(res?.alerts) ? res.alerts : (Array.isArray(res) ? res : []);
+    cachedAlerts = alerts;
     renderAlerts(alerts);
     document.getElementById('alerts-card').classList.remove('hidden');
     // Keep notifications feed synchronized with alert counters.

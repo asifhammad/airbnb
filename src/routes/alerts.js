@@ -40,7 +40,7 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const result = await query(
       `SELECT id, alert_type, location, check_in, check_out, 
-              price_min, price_max, guests, listing_id, listing_url,
+              price_min, price_max, currency, guests, listing_id, listing_url,
               search_url, url_params,
               is_active, last_checked, last_notified,
               (
@@ -63,7 +63,7 @@ router.get('/', authenticateToken, async (req, res) => {
       try {
         const fallback = await query(
           `SELECT id, alert_type, location, check_in, check_out,
-                  price_min, price_max, guests, listing_id, listing_url,
+                  price_min, price_max, NULL::text AS currency, guests, listing_id, listing_url,
                   is_active, last_checked,
                   NULL::timestamp AS last_notified,
                   0::integer AS notification_count,
@@ -159,18 +159,22 @@ router.post('/search', authenticateToken, async (req, res) => {
       });
     }
 
+    const requestCurrency = req.body?.currency && /^[A-Z]{3}$/.test(String(req.body.currency).toUpperCase())
+      ? String(req.body.currency).toUpperCase()
+      : null;
+
     // Create alert
     const result = await query(
       `INSERT INTO search_alerts 
        (user_id, alert_type, location, check_in, check_out, 
         ne_lat, ne_long, sw_lat, sw_long, price_min, price_max, 
-        guests, place_type, amenities, free_cancellation, is_free_trial, expires_at)
-       VALUES ($1, 'search', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        currency, guests, place_type, amenities, free_cancellation, is_free_trial, expires_at)
+       VALUES ($1, 'search', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING *`,
       [
         req.user.userId, location, check_in, check_out,
         ne_lat, ne_long, sw_lat, sw_long,
-        price_min, price_max, guests, place_type,
+        price_min, price_max, requestCurrency, guests, place_type,
         JSON.stringify(amenities || []), free_cancellation, isFreeTrial, expiresAt
       ]
     );
@@ -272,12 +276,19 @@ router.post('/url', authenticateToken, async (req, res) => {
     // Attempt to extract common filters from the Airbnb search URL so we can
     // populate searchable columns (location, dates, guests, price, amenities)
     const parsed = parseSearchUrl(search_url) || {};
+    const normalizedCurrency = parsed.currency && /^[A-Z]{3}$/.test(parsed.currency)
+      ? parsed.currency
+      : null;
+    const requestCurrency = req.body?.currency && /^[A-Z]{3}$/.test(String(req.body.currency).toUpperCase())
+      ? String(req.body.currency).toUpperCase()
+      : null;
+    const currency = requestCurrency || normalizedCurrency || null;
 
     // Create alert (store both normalized columns and raw url_params)
     const result = await query(
       `INSERT INTO search_alerts 
-       (user_id, alert_type, search_url, url_params, location, check_in, check_out, ne_lat, ne_long, sw_lat, sw_long, price_min, price_max, guests, place_type, amenities, free_cancellation, is_free_trial, expires_at)
-       VALUES ($1, 'search', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       (user_id, alert_type, search_url, url_params, location, check_in, check_out, ne_lat, ne_long, sw_lat, sw_long, price_min, price_max, currency, guests, place_type, amenities, free_cancellation, is_free_trial, expires_at)
+       VALUES ($1, 'search', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING *`,
       [
         req.user.userId,
@@ -292,6 +303,7 @@ router.post('/url', authenticateToken, async (req, res) => {
         parsed.sw_long || null,
         parsed.price_min || null,
         parsed.price_max || null,
+        currency,
         parsed.guests || null,
         parsed.place_type || null,
         JSON.stringify(parsed.amenities || []),

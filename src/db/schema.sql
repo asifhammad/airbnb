@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS search_alerts (
   sw_long DECIMAL(11, 8),
   price_min INTEGER,
   price_max INTEGER,
+  currency VARCHAR(3),
   guests INTEGER,
   place_type VARCHAR(50),
   amenities JSONB,

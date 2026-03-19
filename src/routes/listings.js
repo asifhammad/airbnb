@@ -136,7 +136,7 @@ router.get('/notifications/recent', authenticateToken, async (req, res) => {
               ) as listing_image_url,
               COALESCE(n.payload->'listing'->>'url', l.url) as listing_url,
               COALESCE(n.payload->'listing'->>'name', l.name, n.listing_id) as listing_name,
-              sa.location, sa.check_in, sa.check_out,
+              sa.location, sa.check_in, sa.check_out, sa.currency,
               COALESCE(sr.old_price, NULLIF(n.payload->'prices'->>'old_price', '')::numeric) AS old_price,
               COALESCE(sr.new_price, NULLIF(n.payload->'prices'->>'new_price', '')::numeric) AS new_price
        FROM notifications n

@@ -173,6 +173,39 @@
         </div>
       </div>
 
+      <!-- ── Currency confirmation modal ───────────────────────────────────── -->
+      <div id="currency-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="currency-backdrop"></div>
+        <div class="modal-content" style="max-width:520px">
+          <button id="currency-close" class="modal-close">×</button>
+          <h2 style="margin-top:0">Confirm alert currency</h2>
+          <p style="color:var(--muted)">
+            Choose the currency to use for price drop alerts.
+          </p>
+          <div style="margin-top:12px">
+            <label for="currency-select" class="label">Currency</label>
+            <select id="currency-select" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border)">
+              <option value="USD">USD — US Dollar</option>
+              <option value="CAD">CAD — Canadian Dollar</option>
+              <option value="EUR">EUR — Euro</option>
+              <option value="GBP">GBP — British Pound</option>
+              <option value="AUD">AUD — Australian Dollar</option>
+              <option value="NZD">NZD — New Zealand Dollar</option>
+              <option value="CHF">CHF — Swiss Franc</option>
+              <option value="SEK">SEK — Swedish Krona</option>
+              <option value="NOK">NOK — Norwegian Krone</option>
+              <option value="DKK">DKK — Danish Krone</option>
+              <option value="JPY">JPY — Japanese Yen</option>
+              <option value="KRW">KRW — South Korean Won</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:12px;justify-content:flex-start;margin-top:14px">
+            <button id="currency-confirm" class="primary">Confirm</button>
+            <button id="currency-cancel" class="secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Listing details modal ────────────────────────────────────── -->
       <div id="listing-modal" class="modal hidden" role="dialog" aria-modal="true">
         <div class="modal-backdrop" id="modal-backdrop"></div>
