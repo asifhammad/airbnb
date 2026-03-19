@@ -65,8 +65,14 @@ function buildListingUrlWithAlert(listingUrlValue, alert) {
   if (!checkIn && !checkOut) return listingUrlValue;
   try {
     const url = new URL(listingUrlValue);
-    if (checkIn) url.searchParams.set('check_in', checkIn);
-    if (checkOut) url.searchParams.set('check_out', checkOut);
+    if (checkIn) {
+      url.searchParams.set('check_in', checkIn);
+      url.searchParams.set('checkin', checkIn);
+    }
+    if (checkOut) {
+      url.searchParams.set('check_out', checkOut);
+      url.searchParams.set('checkout', checkOut);
+    }
     if (alert?.currency) url.searchParams.set('currency', String(alert.currency).toUpperCase());
     return url.toString();
   } catch (_) {

@@ -63,8 +63,14 @@ function buildListingUrlWithContext(url, context) {
   if (!context) return url;
   try {
     const u = new URL(String(url));
-    if (context.check_in) u.searchParams.set('check_in', context.check_in);
-    if (context.check_out) u.searchParams.set('check_out', context.check_out);
+    if (context.check_in) {
+      u.searchParams.set('check_in', context.check_in);
+      u.searchParams.set('checkin', context.check_in);
+    }
+    if (context.check_out) {
+      u.searchParams.set('check_out', context.check_out);
+      u.searchParams.set('checkout', context.check_out);
+    }
     if (context.currency) u.searchParams.set('currency', String(context.currency).toUpperCase());
     return u.toString();
   } catch (_) {
