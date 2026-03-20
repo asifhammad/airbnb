@@ -63,13 +63,27 @@ function buildListingUrlWithContext(url, context) {
   if (!context) return url;
   try {
     const u = new URL(String(url));
-    if (context.check_in) {
-      u.searchParams.set('check_in', context.check_in);
-      u.searchParams.set('checkin', context.check_in);
+    const normalizeDate = (value) => {
+      if (!value) return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+      }
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+      }
+      const str = String(value).trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
+    };
+    const checkIn = normalizeDate(context.check_in);
+    const checkOut = normalizeDate(context.check_out);
+    if (checkIn) {
+      u.searchParams.set('check_in', checkIn);
+      u.searchParams.set('checkin', checkIn);
     }
-    if (context.check_out) {
-      u.searchParams.set('check_out', context.check_out);
-      u.searchParams.set('checkout', context.check_out);
+    if (checkOut) {
+      u.searchParams.set('check_out', checkOut);
+      u.searchParams.set('checkout', checkOut);
     }
     if (context.currency) u.searchParams.set('currency', String(context.currency).toUpperCase());
     return u.toString();

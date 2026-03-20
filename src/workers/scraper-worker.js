@@ -60,8 +60,20 @@ function normalizeListingId(value) {
 
 function buildListingUrlWithAlert(listingUrlValue, alert) {
   if (!listingUrlValue) return null;
-  const checkIn = alert?.check_in || null;
-  const checkOut = alert?.check_out || null;
+  const normalizeDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    const str = String(value).trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
+  };
+  const checkIn = normalizeDate(alert?.check_in);
+  const checkOut = normalizeDate(alert?.check_out);
   if (!checkIn && !checkOut) return listingUrlValue;
   try {
     const url = new URL(listingUrlValue);
@@ -568,6 +580,18 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
   // Queue notification rows for Dreamlit to send; email_sent=false means pending.
   let queuedCount = 0;
   const resolvedLocation = resolveAlertLocation(alert);
+  const normalizeDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    const str = String(value).trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
+  };
   for (const l of listings) {
     const rawListingUrl = l.url ?? listingUrl(l);
     const listingUrlWithDates = buildListingUrlWithAlert(rawListingUrl, alert);
@@ -588,8 +612,8 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
       },
       alert: {
         location: resolvedLocation,
-        check_in: alert.check_in ?? null,
-        check_out: alert.check_out ?? null,
+        check_in: normalizeDate(alert.check_in),
+        check_out: normalizeDate(alert.check_out),
         currency: alert.currency ?? null,
         guests: alert.guests ?? null,
         price_min: alert.price_min ?? null,
