@@ -593,15 +593,31 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
     return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
   };
   for (const l of listings) {
+    if (!l) {
+      logger.warn(`Alert ${alertId}: skipping notification with empty listing payload`);
+      continue;
+    }
     const rawListingUrl = l.url ?? listingUrl(l);
     const listingUrlWithDates = buildListingUrlWithAlert(rawListingUrl, alert);
+    const listingName = l.name ?? null;
+    const listingImage = listingCoverImage(l);
+    if (!listingUrlWithDates || !listingName) {
+      logger.warn(
+        `Alert ${alertId}: skipping notification missing listing data (id=${l.id ?? 'n/a'}, url=${Boolean(listingUrlWithDates)}, name=${Boolean(listingName)})`
+      );
+      continue;
+    }
     const payload = {
       email_type: emailType,
+      listing_url: listingUrlWithDates,
+      listing_name: listingName,
+      listing_image_url: listingImage,
+      listing_id: l.id ?? null,
       listing: {
         id: l.id ?? null,
-        name: l.name ?? null,
+        name: listingName,
         url: listingUrlWithDates,
-        image_url: listingCoverImage(l),
+        image_url: listingImage,
         address: l.address ?? null,
         rating: l.rating ?? null,
       },

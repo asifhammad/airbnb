@@ -60,11 +60,35 @@ async function getOrCreateStripeCustomer(user) {
 // Queue billing-related email events for Dreamlit (DB-triggered flow).
 async function enqueueBillingEmailEvent(userId, eventType, payload = {}) {
   try {
+    const planKey = payload?.plan_key || null;
+    const plan = planKey && PLANS[planKey] ? PLANS[planKey] : null;
+    const planName = plan?.name || (planKey ? String(planKey).replace(/_/g, ' ') : null);
+    const basePayload = {
+      email_type: eventType,
+      category: 'subscription',
+      plan_key: planKey || null,
+      plan_name: planName,
+      ...payload,
+    };
+    if (eventType === 'subscription_started') {
+      basePayload.subject = 'Your subscription is active';
+      basePayload.message = 'Thanks for subscribing! Your plan is now active.';
+    } else if (eventType === 'subscription_updated') {
+      basePayload.subject = 'Your subscription was updated';
+      basePayload.message = 'We’ve updated your subscription details.';
+    } else if (eventType === 'subscription_canceled') {
+      basePayload.subject = 'Your subscription was canceled';
+      basePayload.message = 'Your subscription has been canceled. You can resubscribe any time.';
+    } else if (eventType === 'invoice_payment_failed') {
+      basePayload.subject = 'Payment failed';
+      basePayload.message = 'We couldn’t process your payment. Please update your billing details.';
+    }
+
     await query(
       `INSERT INTO notifications
          (user_id, search_alert_id, listing_id, notification_type, email_sent, payload)
        VALUES ($1, NULL, NULL, $2, false, $3::jsonb)`,
-      [userId, eventType, JSON.stringify(payload || {})]
+      [userId, eventType, JSON.stringify(basePayload)]
     );
   } catch (err) {
     // Do not break billing if the notifications table is unavailable.
