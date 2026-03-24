@@ -609,6 +609,16 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
     }
     const payload = {
       email_type: emailType,
+      subject: emailType === 'price_drop'
+        ? 'Price drop on a listing you saved'
+        : emailType === 'new'
+          ? 'New listing matching your alert'
+          : 'Listing update for your alert',
+      message: emailType === 'price_drop'
+        ? 'A listing in your alert dropped in price. Review details and confirm availability.'
+        : emailType === 'new'
+          ? 'We found a new listing that matches your alert.'
+          : 'We found an update related to your alert.',
       listing_url: listingUrlWithDates,
       listing_name: listingName,
       listing_image_url: listingImage,
