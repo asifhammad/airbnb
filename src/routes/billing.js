@@ -324,8 +324,7 @@ export async function stripeWebhookHandler(req, res) {
         if (userRes.rows.length) {
           await query(
             `UPDATE users
-             SET subscription_tier = 'free',
-                 subscription_status = 'cancelled',
+             SET subscription_status = 'cancelled',
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $1`,
             [userRes.rows[0].id]

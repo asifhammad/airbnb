@@ -68,7 +68,11 @@ export async function syncSubscription(sub, planMap) {
   );
   const existingTier = existingRes.rows[0]?.subscription_tier || 'free';
   const active = ACTIVE_STATUSES.has(sub.status);
-  const nextTier = active
+  const keepAccessUntilPeriodEnd = Boolean(sub.cancel_at_period_end) && active;
+  const nowMs = Date.now();
+  const periodEndMs = periodEnd ? periodEnd.getTime() : 0;
+  const allowPaidAccess = active && (!sub.cancel_at_period_end || (periodEndMs && nowMs < periodEndMs));
+  const nextTier = allowPaidAccess
     ? (tierFromPlan || (existingTier !== 'free' ? existingTier : 'basic'))
     : 'free';
 
@@ -99,7 +103,7 @@ export async function syncSubscription(sub, planMap) {
   );
 
   // Keep users.subscription_tier/status in sync for JWT + alert checks
-  const subscriptionStatus = normalizeUserStatus(sub.status);
+  const subscriptionStatus = keepAccessUntilPeriodEnd ? 'active' : normalizeUserStatus(sub.status);
   await query(
     `UPDATE users
      SET subscription_tier = $1,
