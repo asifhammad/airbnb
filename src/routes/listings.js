@@ -145,6 +145,7 @@ router.get('/notifications/recent', authenticateToken, async (req, res) => {
        LEFT JOIN search_results sr ON n.search_alert_id  = sr.search_alert_id
                                    AND n.listing_id      = sr.listing_id
        WHERE n.user_id = $1
+         AND n.notification_type IN ('new_listing','price_drop','availability_change')
        ORDER BY n.sent_at DESC
        LIMIT 20`,
       [req.user.userId]

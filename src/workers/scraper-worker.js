@@ -607,18 +607,26 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
       );
       continue;
     }
+    const normalizedType = String(notifType || emailType || '').toLowerCase();
+    const isPriceDrop = normalizedType.includes('price_drop');
+    const isNewListing = normalizedType.includes('new');
+    const isAvailability = normalizedType.includes('availability');
     const payload = {
-      email_type: emailType,
-      subject: emailType === 'price_drop'
+      email_type: emailType || notifType || null,
+      subject: isPriceDrop
         ? 'Price drop on a listing you saved'
-        : emailType === 'new'
+        : isNewListing
           ? 'New listing matching your alert'
-          : 'Listing update for your alert',
-      message: emailType === 'price_drop'
+          : isAvailability
+            ? 'Available again: a listing you saved'
+            : 'Listing update for your alert',
+      message: isPriceDrop
         ? 'A listing in your alert dropped in price. Review details and confirm availability.'
-        : emailType === 'new'
+        : isNewListing
           ? 'We found a new listing that matches your alert.'
-          : 'We found an update related to your alert.',
+          : isAvailability
+            ? 'Your dates may be open now — check details and confirm availability.'
+            : 'We found an update related to your alert.',
       listing_url: listingUrlWithDates,
       listing_name: listingName,
       listing_image_url: listingImage,
