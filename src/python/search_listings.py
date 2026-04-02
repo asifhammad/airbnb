@@ -14,6 +14,19 @@ import pyairbnb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from airbnb_search import search_from_url
 
+def normalize_place_type(place_type):
+    """Normalize place_type labels to match pyairbnb expectations."""
+    if not isinstance(place_type, str):
+        return place_type
+    pt = place_type.strip().lower()
+    if pt in ('entire home', 'entire home/apt', 'entire place', 'entire_home', 'entire_home_apt'):
+        return 'Entire home/apt'
+    if pt in ('private room', 'private_room'):
+        return 'Private room'
+    if pt in ('shared room', 'shared_room'):
+        return 'Shared room'
+    return place_type.strip()
+
 def search_listings(params):
     """Search Airbnb listings with given parameters"""
     try:
@@ -55,7 +68,7 @@ def search_listings(params):
             check_out = params.get('check_out')
             price_min = params.get('price_min', 0)
             price_max = params.get('price_max', 0)
-            place_type = params.get('place_type', '')
+            place_type = normalize_place_type(params.get('place_type', ''))
             amenities = params.get('amenities', [])
             free_cancellation = params.get('free_cancellation', False)
             adults   = params.get('adults', 0)

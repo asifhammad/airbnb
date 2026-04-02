@@ -175,16 +175,18 @@ function inferCurrencyFromHost(hostname) {
 
 function resolveAlertCurrency(alert, urlParams) {
   if (urlParams?.currency) return String(urlParams.currency).toUpperCase();
-  if (alert?.currency) return String(alert.currency).toUpperCase();
+  let inferred = null;
   if (alert?.search_url) {
     try {
-      const hostCurrency = inferCurrencyFromHost(new URL(alert.search_url).hostname);
-      if (hostCurrency) return hostCurrency;
+      inferred = inferCurrencyFromHost(new URL(alert.search_url).hostname);
     } catch (_) {
-      // ignore malformed URLs
+      inferred = null;
     }
   }
-  return 'USD';
+  const stored = alert?.currency ? String(alert.currency).toUpperCase() : null;
+  if (stored && stored !== 'USD') return stored;
+  if (inferred) return inferred;
+  return stored || 'USD';
 }
 
 function buildSearchParams(alert, urlParams) {
@@ -202,6 +204,7 @@ function buildSearchParams(alert, urlParams) {
     price_max: alert.price_max || (urlParams && urlParams.price_max ? Number(urlParams.price_max) : null),
     guests:    alert.guests    || (urlParams && (parseInt(urlParams.adults || 0) + parseInt(urlParams.children || 0))) || 1,
     amenities: alert.amenities || (urlParams && (urlParams['amenities[]'] || urlParams.amenities)) || [],
+    place_type: alert.place_type || null,
     free_cancellation: alert.free_cancellation || false,
     currency:  resolveAlertCurrency(alert, urlParams),
     proxy_url: process.env.PROXY_URL || '',
