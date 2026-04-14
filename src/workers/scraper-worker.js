@@ -16,8 +16,9 @@ const BASIC_NOTIFICATION_COOLDOWN_HOURS = 24;
 // ─── Price extraction ────────────────────────────────────────────────────────
 // The pyairbnb price object looks like:
 // { unit: { qualifier: 'for 7 nights', amount: 418, discount: 367 }, ... }
-// 'discount' is the actual price after weekly discounts — use that when present,
-// fall back to 'amount', then total.amount, then a raw number.
+// 'total.amount' is the stay total (preferred when present), while unit.amount
+// can be per-night. Use total.amount first to better match Airbnb UI, then
+// fall back to unit.discount/amount, then a raw number.
 function extractPrice(price) {
   if (price == null) return null;
   if (typeof price === 'number') return price;
@@ -26,13 +27,41 @@ function extractPrice(price) {
     return Number.isFinite(n) ? n : null;
   }
   if (typeof price === 'object') {
+    if (price.total && price.total.amount != null) return Number(price.total.amount);
     const unit = price.unit || {};
-    // 'discount' = price after weekly discount applied (what Airbnb shows on card)
+    // 'discount' = price after weekly discount applied (may be per-night)
     if (unit.discount != null) return Number(unit.discount);
     if (unit.amount  != null) return Number(unit.amount);
-    if (price.total  && price.total.amount != null) return Number(price.total.amount);
   }
   return null;
+}
+
+function getListingPrice(listing) {
+  if (!listing) return null;
+  if (listing.__computed_price !== undefined) return listing.__computed_price;
+  const computed = extractPrice(listing.price);
+  listing.__computed_price = computed;
+  return computed;
+}
+
+function filterListingsByBudget(listings, budgetMax, alertId) {
+  if (!Number.isFinite(budgetMax) || budgetMax <= 0) return listings;
+  let missingPrice = 0;
+  const filtered = listings.filter((listing) => {
+    const price = getListingPrice(listing);
+    if (price == null || !Number.isFinite(price)) {
+      missingPrice += 1;
+      return false;
+    }
+    return price <= budgetMax;
+  });
+  const removed = listings.length - filtered.length;
+  if (removed > 0) {
+    logger.info(
+      `Alert ${alertId}: budget post-filter removed ${removed} listing(s) (missing price: ${missingPrice}, max: ${budgetMax})`
+    );
+  }
+  return filtered;
 }
 
 // ─── Build listing URL ───────────────────────────────────────────────────────
@@ -189,13 +218,48 @@ function resolveAlertCurrency(alert, urlParams) {
   return stored || 'USD';
 }
 
+function normalizeAlertDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  const str = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
+}
+
+function resolveAlertDates(alert, urlParams) {
+  const checkIn =
+    normalizeAlertDate(alert?.check_in) ||
+    normalizeAlertDate(urlParams?.checkin) ||
+    normalizeAlertDate(urlParams?.check_in) ||
+    null;
+  const checkOut =
+    normalizeAlertDate(alert?.check_out) ||
+    normalizeAlertDate(urlParams?.checkout) ||
+    normalizeAlertDate(urlParams?.check_out) ||
+    null;
+  return { checkIn, checkOut };
+}
+
+function isPastAlertDates(checkIn, checkOut) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (checkOut) return checkOut < todayStr;
+  if (checkIn) return checkIn < todayStr;
+  return false;
+}
+
 function buildSearchParams(alert, urlParams) {
+  const resolvedDates = resolveAlertDates(alert, urlParams);
   return {
     search_url: alert.search_url || null,
 
     // Fallback fields (used when there is no search_url)
-    check_in:  alert.check_in  || null,
-    check_out: alert.check_out || null,
+    check_in:  resolvedDates.checkIn || null,
+    check_out: resolvedDates.checkOut || null,
     ne_lat:    alert.ne_lat    || null,
     ne_long:   alert.ne_long   || null,
     sw_lat:    alert.sw_lat    || null,
@@ -264,6 +328,22 @@ export async function runSearchAlert(alertId, opts = {}) {
     }
   } catch (_) { urlParams = null; }
 
+  const resolvedDates = resolveAlertDates(alert, urlParams);
+  if (isPastAlertDates(resolvedDates.checkIn, resolvedDates.checkOut)) {
+    logger.info(
+      `Alert ${alertId}: deactivating — alert dates are in the past (check_in=${resolvedDates.checkIn || 'n/a'}, check_out=${resolvedDates.checkOut || 'n/a'})`
+    );
+    await dbQuery(
+      `UPDATE search_alerts
+       SET is_active = false,
+           last_checked = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [alertId]
+    );
+    return { status: 'skipped', reason: 'Alert dates are in the past', alertId };
+  }
+
   // ── Build search params for Python ─────────────────────────────────────────
   // Always prefer search_url — our new airbnb_search.py uses it directly and
   // produces results that exactly match the Airbnb UI.
@@ -279,6 +359,13 @@ export async function runSearchAlert(alertId, opts = {}) {
   }
 
   logger.info(`Alert ${alertId}: scraper returned ${currentListings.length} listings`);
+
+  const budgetMax = Number.isFinite(Number(alert.price_max)) ? Number(alert.price_max)
+    : (urlParams && Number.isFinite(Number(urlParams.price_max)) ? Number(urlParams.price_max) : null);
+  if (budgetMax != null) {
+    currentListings = filterListingsByBudget(currentListings, budgetMax, alertId);
+    logger.info(`Alert ${alertId}: ${currentListings.length} listings after budget filter`);
+  }
 
   if (currentListings.length === 0) {
     logger.warn(`Alert ${alertId}: zero results — possible API change or filter mismatch`);
@@ -347,7 +434,7 @@ export async function runSearchAlert(alertId, opts = {}) {
 
   for (const listing of currentListings) {
     const id       = listing.id;
-    const price    = extractPrice(listing.price);
+    const price    = getListingPrice(listing);
     const url      = listingUrl(listing);
 
     if (!id) continue;
