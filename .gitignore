@@ -36,3 +36,6 @@ build/
 
 # Migration export logs (can contain sensitive hashed auth data)
 src/db/migration-log-*.json
+
+# Local document artifacts
+Cortex_Automation_Portfolio_ENGINEER.docx
