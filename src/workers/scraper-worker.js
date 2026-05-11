@@ -21,17 +21,26 @@ const BASIC_NOTIFICATION_COOLDOWN_HOURS = 24;
 // fall back to unit.discount/amount, then a raw number.
 function extractPrice(price) {
   if (price == null) return null;
-  if (typeof price === 'number') return price;
+  if (typeof price === 'number') return Number.isFinite(price) && price > 0 ? price : null;
   if (typeof price === 'string') {
     const n = parseFloat(price.replace(/[^0-9.]/g, ''));
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) && n > 0 ? n : null;
   }
   if (typeof price === 'object') {
-    if (price.total && price.total.amount != null) return Number(price.total.amount);
+    if (price.total && price.total.amount != null) {
+      const n = Number(price.total.amount);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
     const unit = price.unit || {};
     // 'discount' = price after weekly discount applied (may be per-night)
-    if (unit.discount != null) return Number(unit.discount);
-    if (unit.amount  != null) return Number(unit.amount);
+    if (unit.discount != null) {
+      const n = Number(unit.discount);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    if (unit.amount  != null) {
+      const n = Number(unit.amount);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
   }
   return null;
 }
@@ -287,6 +296,7 @@ async function buildFreshAvailabilitySet(searchFn, searchParams, alertId) {
     const freshListings = await searchFn(searchParams) || [];
     const availableIds = new Set(
       freshListings
+        .filter((listing) => getListingPrice(listing) != null)
         .map((listing) => normalizeListingId(listing?.id))
         .filter(Boolean)
     );
@@ -359,6 +369,15 @@ export async function runSearchAlert(alertId, opts = {}) {
   }
 
   logger.info(`Alert ${alertId}: scraper returned ${currentListings.length} listings`);
+
+  const rawListingCount = currentListings.length;
+  currentListings = currentListings.filter((listing) => getListingPrice(listing) != null);
+  const removedInvalidPrice = rawListingCount - currentListings.length;
+  if (removedInvalidPrice > 0) {
+    logger.info(
+      `Alert ${alertId}: filtered ${removedInvalidPrice} listing(s) with invalid/non-positive price before change detection`
+    );
+  }
 
   const budgetMax = Number.isFinite(Number(alert.price_max)) ? Number(alert.price_max)
     : (urlParams && Number.isFinite(Number(urlParams.price_max)) ? Number(urlParams.price_max) : null);
@@ -602,6 +621,7 @@ export async function runSearchAlert(alertId, opts = {}) {
           const availableNow = await buildFreshAvailabilitySet(searchFn, searchParams, alertId);
           const preValidatedBatches = [
             { listings: priceDropListings, emailType: 'price_drop',   notifType: 'price_drop' },
+            { listings: freedUpListings,   emailType: 'availability', notifType: 'availability' },
             { listings: newListings,       emailType: 'new',          notifType: 'new_listing' },
           ].map((batch) => ({
             ...batch,
@@ -687,6 +707,13 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
       logger.warn(`Alert ${alertId}: skipping notification with empty listing payload`);
       continue;
     }
+    const listingPrice = getListingPrice(l);
+    if (listingPrice == null || listingPrice <= 0) {
+      logger.info(
+        `Alert ${alertId}: skipping notification for listing ${l.id ?? 'n/a'} due to invalid/non-positive price (${listingPrice})`
+      );
+      continue;
+    }
     const rawListingUrl = l.url ?? listingUrl(l);
     const listingUrlWithDates = buildListingUrlWithAlert(rawListingUrl, alert);
     const listingName = l.name ?? null;
@@ -731,8 +758,8 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
       },
       prices: {
         old_price: l.oldPrice ?? null,
-        new_price: l.newPrice ?? (l.price ?? null),
-        current_price: l.price ?? null,
+        new_price: l.newPrice ?? listingPrice,
+        current_price: listingPrice,
       },
       alert: {
         location: resolvedLocation,
