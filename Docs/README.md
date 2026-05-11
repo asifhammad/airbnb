@@ -12,7 +12,7 @@ A comprehensive alert service for Airbnb listings that notifies users when new p
 - 🔄 **Background workers** - Bull queue with Redis for job processing
 - 🐍 **Python scraper** - Uses pyairbnb library for scraping
 
-## Architecture
+## Architectures
 
 ```
 ┌─────────────────┐

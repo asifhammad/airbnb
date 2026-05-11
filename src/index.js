@@ -47,6 +47,12 @@ function sanitizePublicHttpUrl(value) {
 if (process.env.NODE_ENV === 'production' && !sessionSecret) {
   throw new Error('SESSION_SECRET must be set in production');
 }
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set in production');
+}
+if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
+  throw new Error('FRONTEND_URL must be set in production');
+}
 
 function resolveTrustProxy() {
   // Explicit override wins: TRUST_PROXY=false|true|1|2...

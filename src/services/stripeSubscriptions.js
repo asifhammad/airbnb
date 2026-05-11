@@ -2,7 +2,12 @@ import Stripe from 'stripe';
 import { query } from '../db/index.js';
 import logger from '../utils/logger.js';
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (process.env.NODE_ENV === 'production' && !stripeSecretKey) {
+  throw new Error('STRIPE_SECRET_KEY must be set in production');
+}
+
+export const stripe = new Stripe(stripeSecretKey || 'sk_test_placeholder', {
   apiVersion: '2023-10-16',
 });
 
