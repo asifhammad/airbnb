@@ -172,11 +172,55 @@ export function startScheduler() {
     }
   });
 
+  // Deactivate alerts whose entire date window is in the past (every hour)
+  // Safety net in case the per-job check inside runSearchAlert is delayed
+  // (e.g. queue backlog). check_out < today means the stay can no longer be
+  // booked for any part of the alert's window.
+  cron.schedule('0 * * * *', async () => {
+    logger.info('Checking for alerts with past date windows...');
+    
+    try {
+      const result = await query(
+        `UPDATE search_alerts 
+         SET is_active = false,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE is_active = true 
+         AND alert_type = 'search'
+         AND check_in IS NOT NULL
+         AND check_out IS NOT NULL
+         AND check_out < CURRENT_DATE`
+      );
+      
+      if (result.rowCount > 0) {
+        logger.info(`Deactivated ${result.rowCount} alert(s) with past check-out dates`);
+      }
+
+      // Also deactivate alerts where only check_in is set and it's in the past
+      const result2 = await query(
+        `UPDATE search_alerts 
+         SET is_active = false,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE is_active = true 
+         AND alert_type = 'search'
+         AND check_in IS NOT NULL
+         AND check_out IS NULL
+         AND check_in < CURRENT_DATE`
+      );
+      
+      if (result2.rowCount > 0) {
+        logger.info(`Deactivated ${result2.rowCount} alert(s) with past check-in dates (no check-out)`);
+      }
+    } catch (error) {
+      logger.error('Past-date alert cleanup error:', error);
+    }
+  });
+
   logger.info('✅ Scheduler started');
   logger.info('📅 Basic/free tiers: Daily at 9 AM');
   logger.info('📅 Premium tier: Every hour');
   logger.info('🧹 Cleanup: Daily at 3 AM, weekly on Sunday at 2 AM');
-  logger.info('🔁 Stripe reconciliation: Daily at 4:30 AM');
+  logger.info('� Past-date alert deactivation: Every hour');
+  logger.info('�🔁 Stripe reconciliation: Daily at 4:30 AM');
 }
 
 export default { startScheduler };

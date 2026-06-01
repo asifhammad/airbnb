@@ -110,18 +110,22 @@ function buildListingUrlWithAlert(listingUrlValue, alert) {
     const str = String(value).trim();
     return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
   };
+  const todayStr = new Date().toISOString().slice(0, 10);
   const checkIn = normalizeDate(alert?.check_in);
   const checkOut = normalizeDate(alert?.check_out);
-  if (!checkIn && !checkOut) return listingUrlValue;
+  // Skip dates already in the past — Airbnb returns errors for past check-in dates
+  const validCheckIn = checkIn && checkIn >= todayStr ? checkIn : null;
+  const validCheckOut = checkOut && checkOut >= todayStr ? checkOut : null;
+  if (!validCheckIn && !validCheckOut) return listingUrlValue;
   try {
     const url = new URL(listingUrlValue);
-    if (checkIn) {
-      url.searchParams.set('check_in', checkIn);
-      url.searchParams.set('checkin', checkIn);
+    if (validCheckIn) {
+      url.searchParams.set('check_in', validCheckIn);
+      url.searchParams.set('checkin', validCheckIn);
     }
-    if (checkOut) {
-      url.searchParams.set('check_out', checkOut);
-      url.searchParams.set('checkout', checkOut);
+    if (validCheckOut) {
+      url.searchParams.set('check_out', validCheckOut);
+      url.searchParams.set('checkout', validCheckOut);
     }
     if (alert?.currency) url.searchParams.set('currency', String(alert.currency).toUpperCase());
     return url.toString();
@@ -256,8 +260,10 @@ function resolveAlertDates(alert, urlParams) {
 
 function isPastAlertDates(checkIn, checkOut) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  if (checkOut) return checkOut < todayStr;
-  if (checkIn) return checkIn < todayStr;
+  // Deactivate if check-out is entirely in the past
+  if (checkOut && checkOut < todayStr) return true;
+  // Deactivate if check-in has already started (can't book a stay starting in the past)
+  if (checkIn && checkIn < todayStr) return true;
   return false;
 }
 

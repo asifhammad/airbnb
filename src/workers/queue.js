@@ -39,24 +39,45 @@ export const scrapeQueue = new Queue('airbnb-scrape', redisUrl, {
 });
 
 // Add search job to queue
+// Uses a deterministic jobId (search-{alertId}) so Bull automatically deduplicates:
+// if a job for the same alert is already waiting/active, it won't add another.
 export async function addSearchJob(alertId, priority = 'normal') {
   const priorityMap = { low: 10, normal: 5, high: 1 };
-  
+  const jobId = `search-${alertId}`;
+
+  // Check if a job with this ID is already waiting or active
+  const existing = await scrapeQueue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'waiting' || state === 'active' || state === 'delayed') {
+      return existing; // already queued, skip duplicate
+    }
+  }
+
   return await scrapeQueue.add(
     'search',
     { alertId, type: 'search' },
-    { priority: priorityMap[priority] || 5 }
+    { jobId, priority: priorityMap[priority] || 5 }
   );
 }
 
 // Add listing monitoring job
 export async function addListingJob(alertId, priority = 'normal') {
   const priorityMap = { low: 10, normal: 5, high: 1 };
-  
+  const jobId = `listing-${alertId}`;
+
+  const existing = await scrapeQueue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'waiting' || state === 'active' || state === 'delayed') {
+      return existing;
+    }
+  }
+
   return await scrapeQueue.add(
     'listing',
     { alertId, type: 'listing' },
-    { priority: priorityMap[priority] || 5 }
+    { jobId, priority: priorityMap[priority] || 5 }
   );
 }
 
