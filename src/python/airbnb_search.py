@@ -302,7 +302,7 @@ def search_from_url(url, currency="USD", language="en", proxy_url="", op_hash=No
 
     # If no 'query' in querystring, extract location from path (/s/Location--Area/homes)
     if not qs.get('query'):
-        path_match = re.match(r'^/s/([^/?#]+)', (urlparse(url).pathname or ''))
+        path_match = re.match(r'^/s/([^/?#]+)', (urlparse(url).path or ''))
         if path_match:
             location_from_path = path_match.group(1).replace('--', ', ').replace('-', ' ')
             qs['query'] = [location_from_path]

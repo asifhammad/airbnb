@@ -82,17 +82,30 @@ export async function executePythonScript(scriptPath, data) {
           // Clean up input file
           unlinkSync(inputFile);
 
+          // Try to read output file for error details even on non-zero exit
+          let outputRaw = '';
+          try { outputRaw = readFileSync(outputFile, 'utf-8'); } catch (_) { /* output file may not exist */ }
+
           if (code !== 0) {
-            console.error('Python script error:', stderr);
-            reject(new Error(`Python script exited with code ${code}: ${stderr}`));
+            let errorDetail = stderr.trim();
+            if (!errorDetail && outputRaw) {
+              try {
+                const parsed = JSON.parse(outputRaw);
+                errorDetail = parsed.error || outputRaw;
+              } catch (_) {
+                errorDetail = outputRaw.slice(0, 500);
+              }
+            }
+            console.error('Python script error:', errorDetail || '(no output)');
+            try { unlinkSync(outputFile); } catch (_) { /* ignore */ }
+            reject(new Error(`Python script exited with code ${code}: ${errorDetail || '(no output)'}`));
             return;
           }
 
           // Read output
-          const output = readFileSync(outputFile, 'utf-8');
           unlinkSync(outputFile);
 
-          const result = JSON.parse(output);
+          const result = JSON.parse(outputRaw);
 
           // Log Python debug output when results are empty (helps diagnose API changes)
           if (stderr.trim()) {
