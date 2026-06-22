@@ -467,7 +467,8 @@ export async function runSearchAlert(alertId, opts = {}) {
 
     if (!id) continue;
 
-    // Upsert into listings cache
+    // Upsert into listings cache (skip in dry-run to avoid mutating state)
+    if (!dryRun) {
     await dbQuery(
       `INSERT INTO listings
          (listing_id, url, name, price, currency, rating, num_reviews,
@@ -496,9 +497,10 @@ export async function runSearchAlert(alertId, opts = {}) {
         JSON.stringify(listing.photos || []),
       ]
     );
+    }
 
     // Append to price history only when price changes from last recorded value
-    if (price != null) {
+    if (price != null && !dryRun) {
       await dbQuery(
         `INSERT INTO listing_price_history (listing_id, search_alert_id, price)
          SELECT $1::text, $2::int, $3::numeric
@@ -520,7 +522,7 @@ export async function runSearchAlert(alertId, opts = {}) {
 
     if (!wasKnown) {
       // ── NEW LISTING ──────────────────────────────────────────────────────
-      await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
+      if (!dryRun) await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
       if (isBootstrapRun) {
         bootstrapNewCount += 1;
       } else {
@@ -548,7 +550,7 @@ export async function runSearchAlert(alertId, opts = {}) {
           [alertId, id]
         );
         if (alreadyNotified.rows.length === 0) {
-          await upsertSearchResult(dbQuery, alertId, id, 'price_drop', lastPrice, price);
+          if (!dryRun) await upsertSearchResult(dbQuery, alertId, id, 'price_drop', lastPrice, price);
           // Fetch history to include in email
           const histResult = await dbQuery(
             `SELECT price, recorded_at FROM listing_price_history
