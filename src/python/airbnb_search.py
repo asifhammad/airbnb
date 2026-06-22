@@ -175,9 +175,8 @@ def build_raw_params(qs):
     if min_bathrooms and int(min_bathrooms) > 0:
         raw.append({"filterName": "min_bathrooms", "filterValues": [str(min_bathrooms)]})
 
-    # ── Room type ─────────────────────────────────────────────────────────
-    for rt in room_types:
-        raw.append({"filterName": "room_types", "filterValues": [rt]})
+    # ── Room type — skipped: user wants all room types within budget
+    # (Airbnb API ignores this server-side anyway, so removing it only helps)
 
     # ── Amenities ─────────────────────────────────────────────────────────
     if amenities:
