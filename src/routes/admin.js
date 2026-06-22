@@ -104,8 +104,15 @@ router.get('/session', (req, res) => {
 });
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
-// Supports cookie-based admin login only.
+// Supports cookie-based admin login and API-key bypass for manual testing.
 function requireAdminSecret(req, res, next) {
+  // Allow bypass via ADMIN_API_KEY header for CI / manual trigger
+  const adminApiKey = process.env.ADMIN_API_KEY || process.env.JWT_SECRET;
+  if (adminApiKey && req.headers['x-admin-api-key'] === adminApiKey) {
+    req.admin = { mode: 'api_key', username: 'api' };
+    return next();
+  }
+
   const cookieSession = verifyCookieSession(req);
   if (cookieSession) {
     req.admin = { mode: 'cookie', username: cookieSession.username || 'admin' };
