@@ -299,6 +299,15 @@ def search_from_url(url, currency="USD", language="en", proxy_url="", op_hash=No
         op_hash = get_op_hash(proxy_url)
 
     qs = parse_qs(urlparse(url).query)
+
+    # If no 'query' in querystring, extract location from path (/s/Location--Area/homes)
+    if not qs.get('query'):
+        path_match = re.match(r'^/s/([^/?#]+)', (urlparse(url).pathname or ''))
+        if path_match:
+            location_from_path = path_match.group(1).replace('--', ', ').replace('-', ' ')
+            qs['query'] = [location_from_path]
+            print(f'DEBUG: extracted query from path: {location_from_path}')
+
     raw_params = build_raw_params(qs)
 
     api_key = get_api_key(proxy_url)

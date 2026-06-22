@@ -34,7 +34,8 @@ export function startScheduler() {
          JOIN users u ON u.id = sa.user_id
          WHERE sa.is_active = true 
          AND (
-           (u.subscription_tier IN ('basic', 'free') AND u.subscription_status = 'active')
+           (u.subscription_tier = 'basic' AND u.subscription_status = 'active')
+           OR (u.subscription_tier = 'free')
            OR (sa.is_free_trial = true AND sa.expires_at > NOW())
          )`
       );
