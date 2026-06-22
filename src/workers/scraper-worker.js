@@ -812,7 +812,7 @@ async function sendAlerts(dbQuery, alert, alertId, listings, emailType, notifTyp
         location: resolvedLocation,
         check_in: normalizeDate(alert.check_in),
         check_out: normalizeDate(alert.check_out),
-        currency: alert.currency ?? null,
+        currency: resolveAlertCurrency(alert, null) ?? alert.currency ?? null,
         guests: alert.guests ?? null,
         price_min: alert.price_min ?? null,
         price_max: alert.price_max ?? null,
