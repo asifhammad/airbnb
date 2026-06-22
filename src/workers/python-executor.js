@@ -93,6 +93,16 @@ export async function executePythonScript(scriptPath, data) {
           unlinkSync(outputFile);
 
           const result = JSON.parse(output);
+
+          // Log Python debug output when results are empty (helps diagnose API changes)
+          if (stderr.trim()) {
+            if (Array.isArray(result) && result.length === 0) {
+              console.warn(`Python script returned 0 results. stderr: ${stderr.trim().replace(/\n/g, ' | ')}`);
+            } else {
+              console.log(`Python stderr: ${stderr.trim().replace(/\n/g, ' | ')}`);
+            }
+          }
+
           resolve(result);
         } catch (error) {
           reject(error);

@@ -308,4 +308,65 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// ── POST /api/admin/alerts/:id/run ────────────────────────────────────────────
+// Manually trigger a search alert scrape. Supports dry-run mode (default: true)
+// to test without queueing any real notifications.
+//   ?dry_run=true   → scrape + detect changes but don't write to DB or send (default)
+//   ?dry_run=false  → LIVE run — actually queues notifications (use with caution!)
+router.post('/alerts/:id/run', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const dryRun = req.query.dry_run !== 'false'; // default true for safety
+
+    // Verify alert exists and is active
+    const alertCheck = await query(
+      `SELECT sa.id, sa.is_active, sa.alert_type, u.email, u.subscription_tier
+       FROM search_alerts sa
+       JOIN users u ON u.id = sa.user_id
+       WHERE sa.id = $1`,
+      [id]
+    );
+
+    if (alertCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+
+    const alert = alertCheck.rows[0];
+
+    if (!alert.is_active && dryRun) {
+      return res.status(400).json({
+        error: 'Alert is inactive',
+        alert,
+        hint: 'Use ?dry_run=false to force-run an inactive alert (notifications will still be skipped for past-date alerts)',
+      });
+    }
+
+    if (alert.alert_type !== 'search') {
+      return res.status(400).json({ error: `Alert type "${alert.alert_type}" not supported for manual run` });
+    }
+
+    // Dynamically import the worker (avoids circular dependency at module load)
+    const { runSearchAlert } = await import('../workers/scraper-worker.js');
+
+    const result = await runSearchAlert(Number(id), { dryRun });
+
+    res.json({
+      message: dryRun
+        ? 'Dry run complete — no notifications were queued or DB writes performed'
+        : 'LIVE run complete — notifications may have been queued',
+      dryRun,
+      alert: {
+        id: alert.id,
+        email: alert.email,
+        tier: alert.subscription_tier,
+        is_active: alert.is_active,
+      },
+      result,
+    });
+  } catch (err) {
+    console.error('Admin manual run error:', err);
+    res.status(500).json({ error: 'Failed to run alert', details: err.message });
+  }
+});
+
 export default router;

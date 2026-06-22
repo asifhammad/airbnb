@@ -38,20 +38,31 @@ export const scrapeQueue = new Queue('airbnb-scrape', redisUrl, {
   }
 });
 
+const STUCK_JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 min — if a job is still active after this, treat as stuck
+
 // Add search job to queue
 // Uses a deterministic jobId (search-{alertId}) so Bull automatically deduplicates:
 // if a job for the same alert is already waiting/active, it won't add another.
+// If the existing job is completed, failed, or stuck, remove it and re-queue fresh.
 export async function addSearchJob(alertId, priority = 'normal') {
   const priorityMap = { low: 10, normal: 5, high: 1 };
   const jobId = `search-${alertId}`;
 
-  // Check if a job with this ID is already waiting or active
   const existing = await scrapeQueue.getJob(jobId);
   if (existing) {
     const state = await existing.getState();
-    if (state === 'waiting' || state === 'active' || state === 'delayed') {
+    if (state === 'waiting' || state === 'delayed') {
       return existing; // already queued, skip duplicate
     }
+    if (state === 'active') {
+      const ageMs = Date.now() - (existing.processedOn || existing.timestamp || 0);
+      if (ageMs < STUCK_JOB_TIMEOUT_MS) {
+        return existing; // still processing, skip duplicate
+      }
+      console.warn(`⚠️  Removing stuck job ${jobId} (active for ${Math.round(ageMs / 1000)}s)`);
+    }
+    // For completed, failed, or stuck-active: remove so we can re-queue fresh
+    try { await existing.remove(); } catch (_) { /* best-effort */ }
   }
 
   return await scrapeQueue.add(
@@ -69,9 +80,18 @@ export async function addListingJob(alertId, priority = 'normal') {
   const existing = await scrapeQueue.getJob(jobId);
   if (existing) {
     const state = await existing.getState();
-    if (state === 'waiting' || state === 'active' || state === 'delayed') {
+    if (state === 'waiting' || state === 'delayed') {
       return existing;
     }
+    if (state === 'active') {
+      const ageMs = Date.now() - (existing.processedOn || existing.timestamp || 0);
+      if (ageMs < STUCK_JOB_TIMEOUT_MS) {
+        return existing;
+      }
+      console.warn(`⚠️  Removing stuck job ${jobId} (active for ${Math.round(ageMs / 1000)}s)`);
+    }
+    // For completed, failed, or stuck-active: remove so we can re-queue fresh
+    try { await existing.remove(); } catch (_) { /* best-effort */ }
   }
 
   return await scrapeQueue.add(

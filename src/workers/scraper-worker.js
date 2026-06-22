@@ -307,10 +307,10 @@ async function buildFreshAvailabilitySet(searchFn, searchParams, alertId) {
         .filter(Boolean)
     );
     logger.info(`Alert ${alertId}: pre-send validation matched ${availableIds.size} listings`);
-    return availableIds;
+    return { ok: true, ids: availableIds };
   } catch (err) {
-    logger.warn(`Alert ${alertId}: pre-send availability validation failed (${err.message || err})`);
-    return new Set();
+    logger.warn(`Alert ${alertId}: pre-send availability validation failed (${err.message || err}) — falling back to sending all detected changes`);
+    return { ok: false, ids: new Set() };
   }
 }
 
@@ -319,9 +319,10 @@ export async function runSearchAlert(alertId, opts = {}) {
   const {
     searchFn       = searchAirbnb,
     dbQuery        = query,
+    dryRun         = false,   // when true: scrape & detect but don't write to DB or queue notifications
   } = opts;
 
-  logger.info(`Processing search alert ${alertId}`);
+  logger.info(`Processing search alert ${alertId}${dryRun ? ' [DRY RUN — no notifications will be sent]' : ''}`);
 
   // Load alert
   const alertResult = await dbQuery(
@@ -347,17 +348,19 @@ export async function runSearchAlert(alertId, opts = {}) {
   const resolvedDates = resolveAlertDates(alert, urlParams);
   if (isPastAlertDates(resolvedDates.checkIn, resolvedDates.checkOut)) {
     logger.info(
-      `Alert ${alertId}: deactivating — alert dates are in the past (check_in=${resolvedDates.checkIn || 'n/a'}, check_out=${resolvedDates.checkOut || 'n/a'})`
+      `Alert ${alertId}: ${dryRun ? 'would deactivate' : 'deactivating'} — alert dates are in the past (check_in=${resolvedDates.checkIn || 'n/a'}, check_out=${resolvedDates.checkOut || 'n/a'})`
     );
-    await dbQuery(
-      `UPDATE search_alerts
-       SET is_active = false,
-           last_checked = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [alertId]
-    );
-    return { status: 'skipped', reason: 'Alert dates are in the past', alertId };
+    if (!dryRun) {
+      await dbQuery(
+        `UPDATE search_alerts
+         SET is_active = false,
+             last_checked = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [alertId]
+      );
+    }
+    return { status: 'skipped', reason: 'Alert dates are in the past', alertId, dryRun };
   }
 
   // ── Build search params for Python ─────────────────────────────────────────
@@ -562,10 +565,12 @@ export async function runSearchAlert(alertId, opts = {}) {
   }
 
   // ── Mark last checked ──────────────────────────────────────────────────────
-  await dbQuery(
-    `UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`,
-    [alertId]
-  );
+  if (!dryRun) {
+    await dbQuery(
+      `UPDATE search_alerts SET last_checked = CURRENT_TIMESTAMP WHERE id = $1`,
+      [alertId]
+    );
+  }
 
   if (isBootstrapRun && bootstrapNewCount > 0) {
     logger.info(
@@ -582,14 +587,16 @@ export async function runSearchAlert(alertId, opts = {}) {
   );
   const subscriptionTier = userResult.rows[0]?.subscription_tier;
 
+  // Collect what *would* be sent for dry-run reporting
+  const dryRunReport = { wouldQueue: [], cooldownActive: false, quotaExceeded: false };
+
   if (subscriptionTier) {
     const hasChanges = newListings.length > 0 || priceDropListings.length > 0 || freedUpListings.length > 0;
     if (hasChanges) {
-      const lastEmailCheck = await dbQuery(
+      const lastNotified = dryRun ? null : (await dbQuery(
         `SELECT last_notified FROM search_alerts WHERE id = $1`,
         [alertId]
-      );
-      const lastNotified = lastEmailCheck.rows[0]?.last_notified;
+      )).rows[0]?.last_notified;
       const msSinceLastNotified = lastNotified ? (new Date() - new Date(lastNotified)) : Number.POSITIVE_INFINITY;
 
       const isPremium = subscriptionTier === 'premium';
@@ -602,6 +609,7 @@ export async function runSearchAlert(alertId, opts = {}) {
         logger.info(
           `Alert ${alertId} (${subscriptionTier} tier): skipping queue — already queued within last ${isPremium ? PREMIUM_NOTIFICATION_COOLDOWN_MINUTES + ' minutes' : '24 hours'}`
         );
+        dryRunReport.cooldownActive = true;
       } else {
         let remainingQuota = 1; // basic/free hard cap
         if (isPremium) {
@@ -620,6 +628,7 @@ export async function runSearchAlert(alertId, opts = {}) {
           logger.info(
             `Alert ${alertId} (${subscriptionTier} tier): skipping queue — reached quota in last 24 hours`
           );
+          dryRunReport.quotaExceeded = true;
         } else {
           // Priority: price drop > availability > new listing.
           // Before queueing anything, run a fresh search and only queue listings
@@ -631,38 +640,66 @@ export async function runSearchAlert(alertId, opts = {}) {
             { listings: newListings,       emailType: 'new',          notifType: 'new_listing' },
           ].map((batch) => ({
             ...batch,
-            listings: batch.listings.filter((l) => availableNow.has(normalizeListingId(l?.id))),
+            listings: availableNow.ok
+              ? batch.listings.filter((l) => availableNow.ids.has(normalizeListingId(l?.id)))
+              : batch.listings,
           }));
 
-          const filteredOutCount =
-            (priceDropListings.length + freedUpListings.length + newListings.length) -
-            preValidatedBatches.reduce((sum, b) => sum + b.listings.length, 0);
-          if (filteredOutCount > 0) {
+          if (!availableNow.ok) {
+            logger.warn(
+              `Alert ${alertId}: pre-send validation skipped — queuing all ${priceDropListings.length + freedUpListings.length + newListings.length} detected changes`
+            );
+          } else {
+            const filteredOutCount =
+              (priceDropListings.length + freedUpListings.length + newListings.length) -
+              preValidatedBatches.reduce((sum, b) => sum + b.listings.length, 0);
+            if (filteredOutCount > 0) {
+              logger.info(
+                `Alert ${alertId}: pre-send validation filtered ${filteredOutCount} listing(s) no longer matching alert availability`
+              );
+            }
+          }
+
+          if (dryRun) {
+            // Collect what would be queued for reporting
+            for (const batch of preValidatedBatches) {
+              if (!batch.listings.length) continue;
+              for (const l of batch.listings.slice(0, remainingQuota)) {
+                dryRunReport.wouldQueue.push({
+                  listingId: l.id ?? null,
+                  listingName: l.name ?? null,
+                  listingUrl: listingUrl(l),
+                  price: getListingPrice(l),
+                  oldPrice: l.oldPrice ?? null,
+                  emailType: batch.emailType,
+                  notifType: batch.notifType,
+                });
+              }
+            }
             logger.info(
-              `Alert ${alertId}: pre-send validation filtered ${filteredOutCount} listing(s) no longer matching alert availability`
+              `Alert ${alertId} (${subscriptionTier} tier) [DRY RUN]: would queue ${dryRunReport.wouldQueue.length} notification(s)`
+            );
+          } else {
+            let queuedTotal = 0;
+            for (const batch of preValidatedBatches) {
+              if (remainingQuota <= 0) break;
+              if (!batch.listings.length) continue;
+              const toQueue = batch.listings.slice(0, remainingQuota);
+              const queued = await sendAlerts(dbQuery, alert, alertId, toQueue, batch.emailType, batch.notifType);
+              queuedTotal += queued;
+              remainingQuota -= queued;
+            }
+            logger.info(
+              `Alert ${alertId} (${subscriptionTier} tier): queued ${queuedTotal} notification(s) this run`
             );
           }
-
-          let queuedTotal = 0;
-          for (const batch of preValidatedBatches) {
-            if (remainingQuota <= 0) break;
-            if (!batch.listings.length) continue;
-            const toQueue = batch.listings.slice(0, remainingQuota);
-            const queued = await sendAlerts(dbQuery, alert, alertId, toQueue, batch.emailType, batch.notifType);
-            queuedTotal += queued;
-            remainingQuota -= queued;
-          }
-
-          logger.info(
-            `Alert ${alertId} (${subscriptionTier} tier): queued ${queuedTotal} notification(s) this run`
-          );
         }
       }
     }
   }
 
   logger.info(
-    `Alert ${alertId} done — new:${newListings.length} drops:${priceDropListings.length} freed:${freedUpListings.length}`
+    `Alert ${alertId} done — new:${newListings.length} drops:${priceDropListings.length} freed:${freedUpListings.length}${dryRun ? ' [DRY RUN]' : ''}`
   );
 
   return {
@@ -672,6 +709,8 @@ export async function runSearchAlert(alertId, opts = {}) {
     newListings:    newListings.length,
     priceDrops:     priceDropListings.length,
     freedUp:        freedUpListings.length,
+    dryRun,
+    ...(dryRun ? { dryRunReport } : {}),
   };
 }
 
