@@ -84,6 +84,16 @@ def build_raw_params(qs):
     # selected_filter_order — preserve original order from URL
     filter_order = qs.get("selected_filter_order[]", [])
 
+    # ── Price context (critical for long stays) ──────────────────────────
+    price_filter_input_type = first("price_filter_input_type")
+    price_filter_num_nights = first("price_filter_num_nights")
+
+    # ── Monthly / flexible trip context ──────────────────────────────────
+    monthly_start_date = first("monthly_start_date")
+    monthly_length     = first("monthly_length")
+    monthly_end_date   = first("monthly_end_date")
+    flexible_trip_lengths = qs.get("flexible_trip_lengths[]", [])
+
     # ── Base params (always sent) ─────────────────────────────────────────
     raw = [
         {"filterName": "cdnCacheSafe",       "filterValues": ["false"]},
@@ -135,6 +145,22 @@ def build_raw_params(qs):
         raw.append({"filterName": "price_min", "filterValues": [str(price_min)]})
     if price_max and int(price_max) > 0:
         raw.append({"filterName": "price_max", "filterValues": [str(price_max)]})
+
+    # ── Price context (tells Airbnb how to interpret price_max) ──────────
+    if price_filter_input_type:
+        raw.append({"filterName": "priceFilterInputType", "filterValues": [str(price_filter_input_type)]})
+    if price_filter_num_nights:
+        raw.append({"filterName": "priceFilterNumNights", "filterValues": [str(price_filter_num_nights)]})
+
+    # ── Monthly / long-term stay context ─────────────────────────────────
+    if monthly_start_date:
+        raw.append({"filterName": "monthlyStartDate", "filterValues": [monthly_start_date]})
+    if monthly_length:
+        raw.append({"filterName": "monthlyLength", "filterValues": [monthly_length]})
+    if monthly_end_date:
+        raw.append({"filterName": "monthlyEndDate", "filterValues": [monthly_end_date]})
+    for ftl in flexible_trip_lengths:
+        raw.append({"filterName": "flexibleTripLengths", "filterValues": [ftl]})
 
     # ── Guests ────────────────────────────────────────────────────────────
     if adults   and int(adults)   > 0: raw.append({"filterName": "adults",   "filterValues": [adults]})
