@@ -523,10 +523,9 @@ export async function runSearchAlert(alertId, opts = {}) {
     if (!wasKnown) {
       // ── NEW LISTING ──────────────────────────────────────────────────────
       if (!dryRun) await upsertSearchResult(dbQuery, alertId, id, 'new', null, price);
+      newListings.push({ ...listing, price, url });
       if (isBootstrapRun) {
         bootstrapNewCount += 1;
-      } else {
-        newListings.push({ ...listing, price, url });
       }
 
     } else {
@@ -576,7 +575,7 @@ export async function runSearchAlert(alertId, opts = {}) {
 
   if (isBootstrapRun && bootstrapNewCount > 0) {
     logger.info(
-      `Alert ${alertId} bootstrap baseline created (${bootstrapNewCount} listings); notifications suppressed on first run`
+      `Alert ${alertId} bootstrap baseline created (${bootstrapNewCount} listings)`
     );
   }
 
@@ -588,6 +587,12 @@ export async function runSearchAlert(alertId, opts = {}) {
     [alertId]
   );
   const subscriptionTier = userResult.rows[0]?.subscription_tier;
+
+  // Suppress bootstrap new-listing notifications for free/basic users only
+  if (isBootstrapRun && subscriptionTier && subscriptionTier !== 'premium') {
+    newListings.length = 0;
+    logger.info(`Alert ${alertId} (${subscriptionTier}): bootstrap — new listing notifications suppressed`);
+  }
 
   // Collect what *would* be sent for dry-run reporting
   const dryRunReport = { wouldQueue: [], cooldownActive: false, quotaExceeded: false };
