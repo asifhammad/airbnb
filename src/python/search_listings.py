@@ -165,6 +165,38 @@ def search_listings(params):
             results = [r for r in results if is_guest_fav(r)]
             print(f'DEBUG: guest_favorite filter removed {before - len(results)}, kept {len(results)}')
 
+        # room_types — Airbnb ignores this server-side, so always post-filter
+        if using_url and search_url:
+            from urllib.parse import urlparse, parse_qs
+            url_qs = parse_qs(urlparse(search_url).query)
+            requested_room_types = url_qs.get('room_types[]', [])
+            if requested_room_types:
+                def normalize_rt(rt):
+                    rt = str(rt or '').strip().lower()
+                    if rt in ('entire home/apt', 'entire home', 'entire place', 'entire_home', 'entire_home_apt'):
+                        return 'entire home/apt'
+                    if rt in ('private room', 'private_room'):
+                        return 'private room'
+                    if rt in ('shared room', 'shared_room'):
+                        return 'shared room'
+                    return rt
+                wanted = set(normalize_rt(rt) for rt in requested_room_types)
+                def guess_room_type(item):
+                    for field in ('roomType', 'room_type', 'type', 'kind', 'category'):
+                        v = item.get(field)
+                        if v: return normalize_rt(v)
+                    name = str(item.get('name') or item.get('title') or '').lower()
+                    if 'shared room' in name or 'shared bed' in name: return 'shared room'
+                    if 'private room' in name or 'private bed' in name: return 'private room'
+                    if any(w in name for w in ['entire home','entire place','entire apartment','entire condo','entire villa','entire loft','entire cottage','entire house','entire guesthouse']): return 'entire home/apt'
+                    return None
+                def matches_room_type(item):
+                    rt = guess_room_type(item)
+                    return rt is None or rt in wanted
+                before = len(results)
+                results = [r for r in results if matches_room_type(r)]
+                print(f'DEBUG: room_type filter removed {before - len(results)}, kept {len(results)} (wanted: {wanted})')
+
         # instant_book — server-side via URL; only post-filter in fallback mode
         if params.get('instant_book') and not using_url:
             def is_instant(item):
